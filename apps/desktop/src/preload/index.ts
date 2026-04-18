@@ -9,6 +9,13 @@ import type {
   SupportedOnboardingProvider,
 } from '@open-codesign/shared';
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  ConnectionTestError,
+  ConnectionTestResult,
+  ModelsListResponse,
+} from '../main/connection-ipc';
+
+export type { ConnectionTestError, ConnectionTestResult, ModelsListResponse };
 
 export interface ValidateKeyResult {
   ok: true;
@@ -153,6 +160,23 @@ const api = {
     get: () => ipcRenderer.invoke('preferences:v1:get') as Promise<Preferences>,
     update: (patch: Partial<Preferences>) =>
       ipcRenderer.invoke('preferences:v1:update', patch) as Promise<Preferences>,
+  },
+  connection: {
+    test: (input: {
+      provider: SupportedOnboardingProvider;
+      apiKey: string;
+      baseUrl: string;
+    }) =>
+      ipcRenderer.invoke('connection:v1:test', input) as Promise<
+        ConnectionTestResult | ConnectionTestError
+      >,
+  },
+  models: {
+    list: (input: {
+      provider: SupportedOnboardingProvider;
+      apiKey: string;
+      baseUrl: string;
+    }) => ipcRenderer.invoke('models:v1:list', input) as Promise<ModelsListResponse>,
   },
 };
 
