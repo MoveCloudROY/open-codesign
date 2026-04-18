@@ -164,7 +164,13 @@ export function App() {
 
       <main className="flex flex-col">
         <header className="h-[52px] px-6 border-b border-[var(--color-border-muted)] flex items-center justify-between">
-          <span className="text-[13px] text-[var(--color-text-secondary)] tracking-[-0.005em]">
+          <span className="inline-flex items-center gap-2 text-[13px] text-[var(--color-text-secondary)] tracking-[-0.005em]">
+            <span
+              aria-hidden="true"
+              className={`w-[6px] h-[6px] rounded-full ${
+                previewHtml ? 'bg-[var(--color-success)]' : 'bg-[var(--color-border-strong)]'
+              }`}
+            />
             {previewHtml ? 'Preview' : 'No design yet'}
           </span>
           <span
@@ -196,13 +202,22 @@ export function App() {
 function EmptyState() {
   return (
     <div className="h-full flex items-center justify-center">
-      <div className="text-center max-w-[360px] flex flex-col items-center gap-5">
-        <EmptyMark />
-        <div className="flex flex-col gap-2">
-          <h2 className="text-[20px] font-semibold text-[var(--color-text-primary)] tracking-[-0.01em] leading-[1.2]">
+      <div className="text-center max-w-[400px] flex flex-col items-center gap-6">
+        <div className="relative inline-flex items-center justify-center">
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 -m-6 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, var(--color-accent-soft), transparent 70%)',
+            }}
+          />
+          <EmptyMark />
+        </div>
+        <div className="flex flex-col gap-2 relative">
+          <h2 className="text-[24px] font-semibold text-[var(--color-text-primary)] tracking-[-0.01em] leading-[1.2]">
             A blank canvas, ready when you are.
           </h2>
-          <p className="text-[13px] text-[var(--color-text-secondary)] leading-[1.6]">
+          <p className="text-[14px] text-[var(--color-text-secondary)] leading-[1.6]">
             Pick a starter on the left, or describe what you want to design. The result renders here
             in a sandboxed preview.
           </p>
@@ -215,35 +230,36 @@ function EmptyState() {
 function EmptyMark() {
   return (
     <svg
-      width="56"
-      height="56"
-      viewBox="0 0 56 56"
+      width="72"
+      height="72"
+      viewBox="0 0 72 72"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
+      className="relative"
     >
       <title>open-codesign canvas</title>
       <rect
-        x="8.5"
-        y="8.5"
-        width="39"
-        height="39"
-        rx="6"
+        x="10.5"
+        y="10.5"
+        width="51"
+        height="51"
+        rx="8"
         stroke="var(--color-border-strong)"
-        strokeDasharray="3 4"
+        strokeDasharray="3 5"
         strokeWidth="1"
       />
       <rect
-        x="20"
-        y="20"
-        width="16"
-        height="16"
-        rx="3"
-        fill="var(--color-accent-soft)"
+        x="25"
+        y="25"
+        width="22"
+        height="22"
+        rx="4"
+        fill="var(--color-surface)"
         stroke="var(--color-accent)"
         strokeWidth="1.4"
       />
-      <circle cx="28" cy="28" r="3" fill="var(--color-accent)" />
+      <circle cx="36" cy="36" r="3.5" fill="var(--color-accent)" />
     </svg>
   );
 }
