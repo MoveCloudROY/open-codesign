@@ -207,7 +207,26 @@ export const OVERLAY_SCRIPT = `(function() {
     }
   }
   reattach();
-  try { setInterval(reattach, 200); } catch (err) { console.warn('[overlay] setInterval reattach failed:', err); }
+  try {
+    if (window.__cs_reattach_interval) {
+      try { clearInterval(window.__cs_reattach_interval); } catch (_) {}
+      window.__cs_reattach_interval = 0;
+    }
+    window.__cs_reattach_interval = setInterval(reattach, 200);
+    if (!window.__cs_reattach_unload) {
+      window.__cs_reattach_unload = true;
+      var stopReattach = function() {
+        try {
+          if (window.__cs_reattach_interval) {
+            clearInterval(window.__cs_reattach_interval);
+            window.__cs_reattach_interval = 0;
+          }
+        } catch (_) {}
+      };
+      try { window.addEventListener('pagehide', stopReattach, false); } catch (_) {}
+      try { window.addEventListener('beforeunload', stopReattach, false); } catch (_) {}
+    }
+  } catch (err) { try { console.warn('[overlay] setInterval reattach failed:', err); } catch (_) {} }
 
   // Neutralize programmatic navigation — generated code may call
   // window.location = '/foo', location.assign('/x'), or window.open(...)

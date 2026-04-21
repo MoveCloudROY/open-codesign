@@ -50,18 +50,35 @@ const memCache = new Map<string, string>();
 const LS_PREFIX = 'designCardPreview:';
 const LS_MAX_CHARS = 300_000; // ~ 300 KB per entry ceiling; skip caching huge HTML
 const LS_MAX_ENTRIES = 40;
+const MEM_MAX_ENTRIES = 40;
 
 function cacheKey(id: string, updatedAt: string): string {
   return `${id}:${updatedAt}`;
 }
 
+// Map iteration order = insertion order, so delete+set on hit refreshes recency
+// and evicting the first key drops the least-recently-used entry.
+function memCacheTouch(key: string, value: string): void {
+  memCache.delete(key);
+  memCache.set(key, value);
+  while (memCache.size > MEM_MAX_ENTRIES) {
+    const oldest = memCache.keys().next().value;
+    if (oldest === undefined) break;
+    memCache.delete(oldest);
+  }
+}
+
 function readCache(key: string): string | null {
   const hit = memCache.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) {
+    memCache.delete(key);
+    memCache.set(key, hit);
+    return hit;
+  }
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LS_PREFIX + key);
-    if (raw !== null) memCache.set(key, raw);
+    if (raw !== null) memCacheTouch(key, raw);
     return raw;
   } catch {
     return null;
@@ -69,7 +86,7 @@ function readCache(key: string): string | null {
 }
 
 function writeCache(key: string, html: string): void {
-  memCache.set(key, html);
+  memCacheTouch(key, html);
   if (typeof localStorage === 'undefined') return;
   if (html.length > LS_MAX_CHARS) return;
   try {
