@@ -20,14 +20,26 @@ function makeReleaseDir() {
 }
 
 describe('resolveNativeBindingPath', () => {
-  it('prefers the Electron-specific binding when present', () => {
+  it('prefers the arch-specific Electron binding when present', () => {
     const releaseDir = makeReleaseDir();
-    const electronBinding = path.join(releaseDir, 'better_sqlite3.node-electron.node');
+    const electronBinding = path.join(releaseDir, 'better_sqlite3.node-electron-x64.node');
+    const legacyBinding = path.join(releaseDir, 'better_sqlite3.node-electron.node');
     const defaultBinding = path.join(releaseDir, 'better_sqlite3.node');
     fs.writeFileSync(electronBinding, '');
+    fs.writeFileSync(legacyBinding, '');
     fs.writeFileSync(defaultBinding, '');
 
-    expect(resolveNativeBindingPath(releaseDir, true)).toBe(electronBinding);
+    expect(resolveNativeBindingPath(releaseDir, true, 'x64')).toBe(electronBinding);
+  });
+
+  it('falls back to the legacy Electron binding when the arch-specific one is missing', () => {
+    const releaseDir = makeReleaseDir();
+    const legacyBinding = path.join(releaseDir, 'better_sqlite3.node-electron.node');
+    const defaultBinding = path.join(releaseDir, 'better_sqlite3.node');
+    fs.writeFileSync(legacyBinding, '');
+    fs.writeFileSync(defaultBinding, '');
+
+    expect(resolveNativeBindingPath(releaseDir, true, 'arm64')).toBe(legacyBinding);
   });
 
   it('falls back to the default binding when the runtime-specific one is missing', () => {
@@ -35,7 +47,7 @@ describe('resolveNativeBindingPath', () => {
     const defaultBinding = path.join(releaseDir, 'better_sqlite3.node');
     fs.writeFileSync(defaultBinding, '');
 
-    expect(resolveNativeBindingPath(releaseDir, true)).toBe(defaultBinding);
+    expect(resolveNativeBindingPath(releaseDir, true, 'arm64')).toBe(defaultBinding);
   });
 
   it('keeps the Node-specific path when no Node binding was staged', () => {

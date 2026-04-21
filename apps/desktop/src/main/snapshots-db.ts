@@ -39,16 +39,24 @@ let singleton: Database | null = null;
 /**
  * Resolve the .node binary that matches the active runtime ABI.
  *
- * scripts/install-sqlite-bindings.cjs stages two prebuilds side by side:
- *   build/Release/better_sqlite3.node-node.node      ← Node 22 (vitest)
- *   build/Release/better_sqlite3.node-electron.node  ← Electron (app)
+ * scripts/install-sqlite-bindings.cjs stages the host Node prebuild plus
+ * per-arch Electron prebuilds side by side:
+ *   build/Release/better_sqlite3.node-node.node          ← Node 22 (vitest)
+ *   build/Release/better_sqlite3.node-electron-x64.node  ← Electron x64 app
+ *   build/Release/better_sqlite3.node-electron-arm64.node← Electron arm64 app
+ *   build/Release/better_sqlite3.node-electron.node      ← legacy host-arch alias
  * so that one `pnpm install` covers both runtimes without
  * an electron-rebuild step that toggles the single default binary.
  */
 export function resolveNativeBindingPath(
   releaseDir: string,
   isElectron = typeof process.versions.electron === 'string',
+  arch = process.arch,
 ): string {
+  if (isElectron) {
+    const archSpecific = path.join(releaseDir, `better_sqlite3.node-electron-${arch}.node`);
+    if (fs.existsSync(archSpecific)) return archSpecific;
+  }
   const runtimeSpecific = path.join(
     releaseDir,
     isElectron ? 'better_sqlite3.node-electron.node' : 'better_sqlite3.node-node.node',

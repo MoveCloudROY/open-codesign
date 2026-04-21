@@ -8,8 +8,10 @@
  * app needs Electron at runtime; vitest needs Node. To keep both working from a
  * single `pnpm install`, we download both prebuilds and stash them at:
  *
- *   build/Release/better_sqlite3.node-node.node     (Node ABI, used by vitest)
- *   build/Release/better_sqlite3.node-electron.node (Electron ABI, used by app)
+ *   build/Release/better_sqlite3.node-node.node          (Node ABI, used by vitest)
+ *   build/Release/better_sqlite3.node-electron-x64.node  (Electron ABI, x64 app)
+ *   build/Release/better_sqlite3.node-electron-arm64.node(Electron ABI, arm64 app)
+ *   build/Release/better_sqlite3.node-electron.node      (legacy alias for host arch)
  *
  * snapshots-db.ts then opts into the right file via better-sqlite3's
  * `nativeBinding` constructor option, depending on whether process.versions.electron
@@ -19,14 +21,14 @@
  * recorded versions in install-sqlite-bindings.lock.json. Safe to re-run on
  * every install.
  *
- * SchemaVersion 1: marker for the on-disk lock format so we can migrate later
+ * SchemaVersion 2: marker for the on-disk lock format so we can migrate later
  * without breaking older checkouts.
  */
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const LOCK_SCHEMA_VERSION = 1;
+const LOCK_SCHEMA_VERSION = 2;
 
 function log(msg) {
   process.stdout.write(`[sqlite-bindings] ${msg}\n`);
@@ -49,6 +51,13 @@ function resolveElectronVersion() {
   } catch {
     return null;
   }
+}
+
+function electronTargetArches(platform, hostArch) {
+  if (platform === 'darwin' || platform === 'win32') {
+    return ['x64', 'arm64'];
+  }
+  return [hostArch];
 }
 
 function resolvePrebuildInstallEntrypoint(pkgDir) {
@@ -135,7 +144,14 @@ function main() {
   const electronVersion = resolveElectronVersion();
 
   const nodeBinary = path.join(releaseDir, 'better_sqlite3.node-node.node');
-  const electronBinary = path.join(releaseDir, 'better_sqlite3.node-electron.node');
+  const electronArches = electronTargetArches(platform, arch);
+  const electronBinaries = Object.fromEntries(
+    electronArches.map((targetArch) => [
+      targetArch,
+      path.join(releaseDir, `better_sqlite3.node-electron-${targetArch}.node`),
+    ]),
+  );
+  const legacyElectronBinary = path.join(releaseDir, 'better_sqlite3.node-electron.node');
   const lockPath = path.join(releaseDir, 'install-sqlite-bindings.lock.json');
 
   const lock = (() => {
@@ -154,7 +170,13 @@ function main() {
     nodeVersion,
     electronVersion,
     hasNodeBinary: fs.existsSync(nodeBinary),
-    hasElectronBinary: fs.existsSync(electronBinary),
+    electronArches,
+    hasElectronBinaries: Object.fromEntries(
+      electronArches.map((targetArch) => [
+        targetArch,
+        fs.existsSync(electronBinaries[targetArch]),
+      ]),
+    ),
   };
 
   const upToDate =
@@ -165,9 +187,13 @@ function main() {
     lock.nodeVersion === nodeVersion &&
     lock.electronVersion === electronVersion &&
     lock.hasNodeBinary === targetLock.hasNodeBinary &&
-    lock.hasElectronBinary === targetLock.hasElectronBinary &&
+    JSON.stringify(lock.electronArches) === JSON.stringify(targetLock.electronArches) &&
+    JSON.stringify(lock.hasElectronBinaries) === JSON.stringify(targetLock.hasElectronBinaries) &&
     (!targetLock.hasNodeBinary || fs.existsSync(nodeBinary)) &&
-    (!targetLock.hasElectronBinary || fs.existsSync(electronBinary));
+    electronArches.every(
+      (targetArch) =>
+        targetLock.hasElectronBinaries[targetArch] !== true || fs.existsSync(electronBinaries[targetArch]),
+    );
 
   if (upToDate) {
     log(
@@ -187,23 +213,25 @@ function main() {
     optional: true,
   });
 
-  let hasElectronBinary = false;
+  const hasElectronBinaries = {};
   if (electronVersion === null) {
     log('electron not installed; skipping Electron native binding (fine for prod-only installs)');
   } else {
-    log(`downloading Electron prebuild (electron=${electronVersion}, ${platform}-${arch})`);
-    hasElectronBinary = downloadPrebuild({
-      pkgDir,
-      runtime: 'electron',
-      target: electronVersion,
-      arch,
-      platform,
-      dest: electronBinary,
-      optional: false,
-    });
+    for (const targetArch of electronArches) {
+      log(`downloading Electron prebuild (electron=${electronVersion}, ${platform}-${targetArch})`);
+      hasElectronBinaries[targetArch] = downloadPrebuild({
+        pkgDir,
+        runtime: 'electron',
+        target: electronVersion,
+        arch: targetArch,
+        platform,
+        dest: electronBinaries[targetArch],
+        optional: false,
+      });
+    }
   }
 
-  if (!hasNodeBinary && !hasElectronBinary) {
+  if (!hasNodeBinary && !electronArches.some((targetArch) => hasElectronBinaries[targetArch])) {
     throw new Error('Failed to stage any better-sqlite3 native bindings');
   }
 
@@ -215,13 +243,21 @@ function main() {
   const defaultBinary = path.join(releaseDir, 'better_sqlite3.node');
   if (hasNodeBinary) {
     fs.copyFileSync(nodeBinary, defaultBinary);
-  } else if (hasElectronBinary) {
-    fs.copyFileSync(electronBinary, defaultBinary);
+  } else {
+    const firstElectronArch = electronArches.find((targetArch) => hasElectronBinaries[targetArch]);
+    if (firstElectronArch) fs.copyFileSync(electronBinaries[firstElectronArch], defaultBinary);
+  }
+
+  const hostElectronBinary = electronBinaries[arch];
+  if (hostElectronBinary && fs.existsSync(hostElectronBinary)) {
+    fs.copyFileSync(hostElectronBinary, legacyElectronBinary);
+  } else if (fs.existsSync(legacyElectronBinary)) {
+    fs.rmSync(legacyElectronBinary);
   }
 
   fs.writeFileSync(
     lockPath,
-    `${JSON.stringify({ ...targetLock, hasNodeBinary, hasElectronBinary }, null, 2)}\n`,
+    `${JSON.stringify({ ...targetLock, hasNodeBinary, hasElectronBinaries }, null, 2)}\n`,
   );
   log('done');
 }
