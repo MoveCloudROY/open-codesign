@@ -327,6 +327,8 @@
       "updateChannelHint": "Stable: tested releases. Beta: early access (may have bugs).",
       "stable": "Stable",
       "beta": "Beta",
+      "checkForUpdatesOnStartup": "Check for updates on startup",
+      "checkForUpdatesOnStartupHint": "Automatically check for a new release 30 seconds after launch.",
       "timeout": "Generation timeout",
       "timeoutHint": "Seconds before a generation request is aborted.",
       "timeoutSeconds": "{{value}} s",
@@ -337,6 +339,11 @@
       "prefsSaveFailed": "Failed to save preference",
       "devtoolsFailed": "Could not toggle DevTools"
     }
+  },
+  "updates": {
+    "bannerAvailable": "Open CoDesign {{version}} is available.",
+    "bannerViewRelease": "View release",
+    "bannerDismissAria": "Dismiss update banner"
   },
   "onboarding": {
     "stepperLabel": "Step {{current}} of {{total}}",

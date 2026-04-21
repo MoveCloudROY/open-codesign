@@ -330,6 +330,8 @@
       "updateChannelHint": "Stable：稳定版；Beta：抢先体验（可能有 bug）。",
       "stable": "稳定版",
       "beta": "测试版",
+      "checkForUpdatesOnStartup": "启动时检查更新",
+      "checkForUpdatesOnStartupHint": "启动 30 秒后自动检查新版本。",
       "timeout": "生成超时",
       "timeoutHint": "超过该秒数后会中止生成请求。",
       "timeoutSeconds": "{{value}} 秒",
@@ -340,6 +342,11 @@
       "prefsSaveFailed": "保存偏好失败",
       "devtoolsFailed": "无法切换 DevTools"
     }
+  },
+  "updates": {
+    "bannerAvailable": "Open CoDesign {{version}} 可用。",
+    "bannerViewRelease": "查看版本",
+    "bannerDismissAria": "关闭更新提示"
   },
   "onboarding": {
     "stepperLabel": "第 {{current}} 步，共 {{total}} 步",
