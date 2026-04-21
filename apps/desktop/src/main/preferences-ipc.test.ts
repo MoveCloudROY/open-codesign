@@ -39,7 +39,7 @@ describe('readPersisted()', () => {
     readFileMock.mockRejectedValueOnce(notFound);
 
     const result = await readPersisted();
-    expect(result).toEqual({ updateChannel: 'stable', generationTimeoutSec: 600 });
+    expect(result).toEqual({ updateChannel: 'stable', generationTimeoutSec: 1200 });
   });
 
   it('honors XDG_CONFIG_HOME when computing the persisted file path', async () => {
@@ -70,12 +70,12 @@ describe('readPersisted()', () => {
     expect((err as CodesignError).code).toBe('PREFERENCES_READ_FAILED');
   });
 
-  it('migrates schemaVersion 1 with legacy 120s timeout to the 600s default', async () => {
+  it('migrates schemaVersion 1 with legacy 120s timeout to the 1200s default', async () => {
     readFileMock.mockResolvedValueOnce(
       JSON.stringify({ schemaVersion: 1, updateChannel: 'stable', generationTimeoutSec: 120 }),
     );
     const result = await readPersisted();
-    expect(result.generationTimeoutSec).toBe(600);
+    expect(result.generationTimeoutSec).toBe(1200);
   });
 
   it('preserves user-chosen non-legacy timeout across the v1 → v2 migration', async () => {
@@ -86,11 +86,19 @@ describe('readPersisted()', () => {
     expect(result.generationTimeoutSec).toBe(300);
   });
 
-  it('respects an explicit 120s when schema is already v2 (user chose it post-migration)', async () => {
+  it('migrates schemaVersion 2 with the old 600s default to 1200s', async () => {
     readFileMock.mockResolvedValueOnce(
-      JSON.stringify({ schemaVersion: 2, updateChannel: 'stable', generationTimeoutSec: 120 }),
+      JSON.stringify({ schemaVersion: 2, updateChannel: 'stable', generationTimeoutSec: 600 }),
     );
     const result = await readPersisted();
-    expect(result.generationTimeoutSec).toBe(120);
+    expect(result.generationTimeoutSec).toBe(1200);
+  });
+
+  it('respects an explicit 600s when schema is already v3 (user chose it post-migration)', async () => {
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({ schemaVersion: 3, updateChannel: 'stable', generationTimeoutSec: 600 }),
+    );
+    const result = await readPersisted();
+    expect(result.generationTimeoutSec).toBe(600);
   });
 });

@@ -5,6 +5,7 @@ import {
   isTrustedPreviewMessageSource,
   postModeToPreviewWindow,
   scaleRectForZoom,
+  stablePreviewSourceKey,
 } from './PreviewPane';
 
 describe('isTrustedPreviewMessageSource', () => {
@@ -40,6 +41,27 @@ describe('scaleRectForZoom', () => {
       width: 75,
       height: 75,
     });
+  });
+});
+
+describe('stablePreviewSourceKey', () => {
+  it('masks EDITMODE and TWEAK_SCHEMA spans for JSX artifacts', () => {
+    const source = `const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{"accent":"#000"}/*EDITMODE-END*/;
+const TWEAK_SCHEMA = /*TWEAK-SCHEMA-BEGIN*/{"accent":{"kind":"color"}}/*TWEAK-SCHEMA-END*/;
+function App(){ return <div />; }`;
+
+    const key = stablePreviewSourceKey(source);
+
+    expect(key).toContain('/*EDITMODE-BEGIN*/__STABLE__/*EDITMODE-END*/');
+    expect(key).toContain('/*TWEAK-SCHEMA-BEGIN*/__STABLE__/*TWEAK-SCHEMA-END*/');
+    expect(key).not.toContain('{"accent":"#000"}');
+  });
+
+  it('keeps full HTML documents unstable so token changes force a reload', () => {
+    const source =
+      '<!doctype html><html><body><script>const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{"accent":"#000"}/*EDITMODE-END*/;</script></body></html>';
+
+    expect(stablePreviewSourceKey(source)).toBe(source);
   });
 });
 

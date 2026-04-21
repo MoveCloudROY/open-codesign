@@ -17,11 +17,14 @@ import { getLogger } from './logger';
 
 const logger = getLogger('preferences-ipc');
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 // v1 → v2: raise the abandoned 120s timeout default (which aborted real
 // agentic runs mid-loop) to 600s. Values that happen to equal the old
 // default are treated as unmigrated defaults, not user intent.
-const LEGACY_DEFAULT_TIMEOUT_SEC = 120;
+const V1_DEFAULT_TIMEOUT_SEC = 120;
+// v2 -> v3: 600s still clips slower long-form multi-turn runs, so the default
+// moves to 1200s.
+const V2_DEFAULT_TIMEOUT_SEC = 600;
 
 function prefsFile(): string {
   return join(configDir(), 'preferences.json');
@@ -41,11 +44,10 @@ interface PreferencesFile extends Preferences {
 const DEFAULTS: Preferences = {
   updateChannel: 'stable',
   // Agentic runs do multiple LLM turns + tool executions + file writes, so
-  // 120s (Workstream B Phase 1 single-turn budget) was too tight and aborted
-  // real runs mid-loop. 600s (10 min) covers a typical multi-turn design
-  // generation with a slow coproxy. Users on fast endpoints can lower this
+  // 120s was too tight and 600s still clips slower long-form runs. Default to
+  // 1200s (20 min); users on fast endpoints can lower this
   // in Settings → Advanced.
-  generationTimeoutSec: 600,
+  generationTimeoutSec: 1200,
 };
 
 export async function readPersisted(): Promise<Preferences> {
@@ -59,9 +61,11 @@ export async function readPersisted(): Promise<Preferences> {
         ? parsed.generationTimeoutSec
         : DEFAULTS.generationTimeoutSec;
     const migratedTimeout =
-      persistedSchema < SCHEMA_VERSION && rawTimeout === LEGACY_DEFAULT_TIMEOUT_SEC
+      persistedSchema < 2 && rawTimeout === V1_DEFAULT_TIMEOUT_SEC
         ? DEFAULTS.generationTimeoutSec
-        : rawTimeout;
+        : persistedSchema < 3 && rawTimeout === V2_DEFAULT_TIMEOUT_SEC
+          ? DEFAULTS.generationTimeoutSec
+          : rawTimeout;
     return {
       updateChannel:
         parsed.updateChannel === 'stable' || parsed.updateChannel === 'beta'

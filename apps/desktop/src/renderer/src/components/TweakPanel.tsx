@@ -15,9 +15,15 @@ type TokenValue = unknown;
 type Tokens = Record<string, TokenValue>;
 
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const CSS_COLOR_RE =
+  /^(#([0-9a-f]{3}|[0-9a-f]{6})|(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([^)]*\)|color\([^)]*\)|[a-z]+)$/i;
 
 function isColorString(value: unknown): value is string {
-  return typeof value === 'string' && HEX_RE.test(value);
+  return typeof value === 'string' && CSS_COLOR_RE.test(value.trim());
+}
+
+function isNativeColorInputValue(value: string): boolean {
+  return HEX_RE.test(value.trim());
 }
 
 function humanize(key: string): string {
@@ -37,21 +43,30 @@ function ColorSwatch({
   onChange: (next: string) => void;
   pickColorLabel: string;
 }) {
+  const canPickNatively = isNativeColorInputValue(value);
   return (
     <div className="flex items-center gap-[var(--space-2)]">
-      <label className="relative inline-flex h-[28px] w-[28px] shrink-0 cursor-pointer overflow-hidden rounded-[var(--radius-sm)] shadow-[var(--shadow-inset-soft)] transition-transform duration-[var(--duration-faster)] hover:scale-[1.04] active:scale-[var(--scale-press-down)]">
+      <label
+        className={`relative inline-flex h-[28px] w-[28px] shrink-0 overflow-hidden rounded-[var(--radius-sm)] shadow-[var(--shadow-inset-soft)] transition-transform duration-[var(--duration-faster)] ${
+          canPickNatively
+            ? 'cursor-pointer hover:scale-[1.04] active:scale-[var(--scale-press-down)]'
+            : 'cursor-default'
+        }`}
+      >
         <span
           className="block h-full w-full"
           style={{ backgroundColor: value }}
           aria-hidden="true"
         />
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-          aria-label={pickColorLabel}
-        />
+        {canPickNatively ? (
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            aria-label={pickColorLabel}
+          />
+        ) : null}
       </label>
       <input
         type="text"

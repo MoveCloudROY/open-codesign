@@ -69,6 +69,22 @@ export function scaleRectForZoom(
   };
 }
 
+export function stablePreviewSourceKey(source: string): string {
+  const head = source.trimStart().slice(0, 2048).toLowerCase();
+  // Full HTML documents do not get the JSX tweaks bridge injected, so token
+  // changes must invalidate srcdoc and force a reload to take effect.
+  if (head.startsWith('<!doctype') || head.startsWith('<html')) return source;
+  return source
+    .replace(
+      /\/\*\s*EDITMODE-BEGIN\s*\*\/[\s\S]*?\/\*\s*EDITMODE-END\s*\*\//g,
+      '/*EDITMODE-BEGIN*/__STABLE__/*EDITMODE-END*/',
+    )
+    .replace(
+      /\/\*\s*TWEAK-SCHEMA-BEGIN\s*\*\/[\s\S]*?\/\*\s*TWEAK-SCHEMA-END\s*\*\//g,
+      '/*TWEAK-SCHEMA-BEGIN*/__STABLE__/*TWEAK-SCHEMA-END*/',
+    );
+}
+
 export type AllowedPreviewMessageType = 'ELEMENT_SELECTED' | 'IFRAME_ERROR';
 
 export interface PreviewMessageHandlers {
@@ -145,17 +161,7 @@ function PreviewSlot({
   registerIframe,
   onIframeError,
 }: PreviewSlotProps) {
-  const srcDocStableKey = useMemo(() => {
-    return html
-      .replace(
-        /\/\*\s*EDITMODE-BEGIN\s*\*\/[\s\S]*?\/\*\s*EDITMODE-END\s*\*\//g,
-        '/*EDITMODE-BEGIN*/__STABLE__/*EDITMODE-END*/',
-      )
-      .replace(
-        /\/\*\s*TWEAK-SCHEMA-BEGIN\s*\*\/[\s\S]*?\/\*\s*TWEAK-SCHEMA-END\s*\*\//g,
-        '/*TWEAK-SCHEMA-BEGIN*/__STABLE__/*TWEAK-SCHEMA-END*/',
-      );
-  }, [html]);
+  const srcDocStableKey = useMemo(() => stablePreviewSourceKey(html), [html]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: srcDocStableKey is the intentional dependency. html flows through naturally because the factory closes over it and re-runs whenever the stable key flips, which is exactly when structural changes (anything outside EDITMODE / TWEAK_SCHEMA markers) are present.
   const srcDoc = useMemo(() => buildSrcdoc(html), [srcDocStableKey]);
