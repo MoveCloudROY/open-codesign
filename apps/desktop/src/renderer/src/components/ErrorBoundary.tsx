@@ -6,6 +6,7 @@
  *   - the error message (loud, not hidden in console)
  *   - "Reload" — re-mounts the children by bumping a key
  *   - "Copy stack" — puts message+stack into the clipboard for bug reports
+ *   - "Report on GitHub" — opens a pre-filled GitHub issue in the browser
  *
  * Used both at the app shell (whole renderer) and per-pane (sidebar /
  * preview / topbar) so a single crash never blanks the entire window.
@@ -14,6 +15,11 @@
 import { useT } from '@open-codesign/i18n';
 import { Button } from '@open-codesign/ui';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+
+// Source: apps/desktop/package.json → repository.url
+// Kept as a constant here so the ErrorBoundary has no runtime dependency on
+// the main process — it must render even when IPC is broken.
+const GITHUB_REPO_URL = 'https://github.com/OpenCoworkAI/open-codesign';
 
 export interface ErrorBoundaryProps {
   children: ReactNode;
@@ -71,6 +77,39 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
   };
 
+  reportOnGitHub = (): void => {
+    const err = this.state.error;
+    if (!err) return;
+
+    const version = typeof __APP_VERSION__ !== 'undefined' ? String(__APP_VERSION__) : 'unknown';
+    const platform = navigator.platform;
+    const timestamp = new Date().toISOString();
+    const stackSnippet = (err.stack ?? '(no stack)').slice(0, 3000);
+
+    const title = `[Renderer] ${err.name}: ${err.message.slice(0, 60)}`;
+    const body = [
+      `**Version:** ${version}`,
+      `**Platform:** ${platform}`,
+      `**Timestamp:** ${timestamp}`,
+      '',
+      '**Error message:**',
+      '```',
+      err.message,
+      '```',
+      '',
+      '**Stack trace:**',
+      '```',
+      stackSnippet,
+      '```',
+    ].join('\n');
+
+    const url = `${GITHUB_REPO_URL}/issues/new?template=bug_report.yml&title=${encodeURIComponent(title)}&description=${encodeURIComponent(body)}`;
+
+    // setWindowOpenHandler in main/index.ts routes window.open to shell.openExternal,
+    // so this safely opens the system browser without a new Electron window.
+    window.open(url, '_blank');
+  };
+
   override render(): ReactNode {
     const { error, resetKey } = this.state;
     if (!error) {
@@ -86,6 +125,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         scope={this.props.scope}
         onReset={this.reset}
         onCopyStack={() => void this.copyStack()}
+        onReportOnGitHub={this.reportOnGitHub}
       />
     );
   }
@@ -96,6 +136,7 @@ interface ErrorBoundaryFallbackProps {
   scope?: string | undefined;
   onReset: () => void;
   onCopyStack: () => void;
+  onReportOnGitHub: () => void;
 }
 
 function ErrorBoundaryFallback({
@@ -103,6 +144,7 @@ function ErrorBoundaryFallback({
   scope,
   onReset,
   onCopyStack,
+  onReportOnGitHub,
 }: ErrorBoundaryFallbackProps): ReactNode {
   const t = useT();
   const scopeLabel = scope ?? t('errorBoundary.scopeFallback');
@@ -122,6 +164,9 @@ function ErrorBoundaryFallback({
         <div className="mt-4 flex gap-2 justify-end">
           <Button type="button" variant="secondary" size="md" onClick={onCopyStack}>
             {t('errorBoundary.copyStack')}
+          </Button>
+          <Button type="button" variant="secondary" size="md" onClick={onReportOnGitHub}>
+            {t('errorBoundary.reportOnGitHub')}
           </Button>
           <Button type="button" size="md" onClick={onReset}>
             {t('errorBoundary.reload')}

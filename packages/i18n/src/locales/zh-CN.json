@@ -571,6 +571,7 @@
     "body": "应用其余部分仍在运行。可以重新加载该视图，或复制堆栈用于反馈问题。",
     "noStack": "（无堆栈信息）",
     "copyStack": "复制堆栈",
+    "reportOnGitHub": "在 GitHub 反馈",
     "reload": "重新加载"
   },
   "errors": {

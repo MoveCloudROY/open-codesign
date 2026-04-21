@@ -568,6 +568,7 @@
     "body": "The rest of the app is still running. Reload this view, or copy the stack to file a bug.",
     "noStack": "(no stack)",
     "copyStack": "Copy stack",
+    "reportOnGitHub": "Report on GitHub",
     "reload": "Reload"
   },
   "errors": {
