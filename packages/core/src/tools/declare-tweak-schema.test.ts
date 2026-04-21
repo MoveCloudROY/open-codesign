@@ -46,8 +46,8 @@ describe('declare_tweak_schema tool', () => {
     expect(res.details.status).toBe('ok');
     expect(res.details.errors).toEqual([]);
     const after = fs.view('index.html');
-    expect(after).not.toBeNull();
-    expect(parseTweakSchema(after!.content)).toEqual({
+    if (!after) throw new Error('expected index.html to exist');
+    expect(parseTweakSchema(after.content)).toEqual({
       accent: { kind: 'color' },
       radius: { kind: 'number', min: 0, max: 32, step: 2, unit: 'px' },
     });
@@ -63,7 +63,9 @@ describe('declare_tweak_schema tool', () => {
       schema: { accent: { kind: 'string', placeholder: 'hex' } },
     });
     expect(res.details.status).toBe('ok');
-    const content = fs.view('index.html')!.content;
+    const view = fs.view('index.html');
+    if (!view) throw new Error('expected index.html to exist');
+    const content = view.content;
     expect(content.match(/TWEAK-SCHEMA-BEGIN/g)?.length).toBe(1);
     expect(parseTweakSchema(content)).toEqual({
       accent: { kind: 'string', placeholder: 'hex' },
@@ -83,7 +85,9 @@ describe('declare_tweak_schema tool', () => {
     expect(res.details.status).toBe('error');
     expect(res.details.errors.some((e) => e.message.includes('"bad"'))).toBe(true);
     // The good entry still landed in the file.
-    expect(parseTweakSchema(fs.view('index.html')!.content)).toEqual({
+    const view = fs.view('index.html');
+    if (!view) throw new Error('expected index.html to exist');
+    expect(parseTweakSchema(view.content)).toEqual({
       good: { kind: 'color' },
     });
   });
