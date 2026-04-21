@@ -24,6 +24,7 @@ import {
 import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import type { AgentStreamEvent } from '../preload/index';
+import { registerAppMenu } from './app-menu';
 import { registerChatMessagesIpc, registerChatMessagesUnavailableIpc } from './chat-messages-ipc';
 import { runCodexGenerate } from './codex-generate';
 import { registerCodexOAuthIpc } from './codex-oauth-ipc';
@@ -841,12 +842,29 @@ function setupAutoUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     mainWindow?.webContents.send('codesign:update-available', info);
   });
+  autoUpdater.on('update-not-available', (info) => {
+    mainWindow?.webContents.send('codesign:update-not-available', info);
+  });
   autoUpdater.on('error', (err) => {
     mainWindow?.webContents.send('codesign:update-error', err.message);
   });
   ipcMain.handle('codesign:check-for-updates', () => autoUpdater.checkForUpdates());
   ipcMain.handle('codesign:download-update', () => autoUpdater.downloadUpdate());
   ipcMain.handle('codesign:install-update', () => autoUpdater.quitAndInstall());
+}
+
+async function scheduleStartupUpdateCheck(): Promise<void> {
+  if (!app.isPackaged) return;
+  const prefs = await readPreferences();
+  if (prefs.checkForUpdatesOnStartup === false) return;
+  setTimeout(() => {
+    const updateLog = getLogger('main:updates');
+    autoUpdater.checkForUpdates().catch((err: unknown) => {
+      updateLog.error('startup.checkForUpdates.fail', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }, 30_000);
 }
 
 void app.whenReady().then(async () => {
@@ -892,7 +910,9 @@ void app.whenReady().then(async () => {
   registerExporterIpc(() => mainWindow);
   registerDiagnosticsIpc();
   setupAutoUpdater();
+  registerAppMenu();
   createWindow();
+  void scheduleStartupUpdateCheck();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
