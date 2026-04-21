@@ -16,7 +16,6 @@ const initialState = useCodesignStore.getState();
 function resetStore() {
   useCodesignStore.setState({
     ...initialState,
-    messages: [],
     previewHtml: null,
     isGenerating: false,
     activeGenerationId: null,
@@ -119,6 +118,7 @@ describe('generationStage transitions', () => {
     const firstPromise = useCodesignStore.getState().sendPrompt({ prompt: 'first' });
     const firstId = useCodesignStore.getState().activeGenerationId;
     if (!firstId) throw new Error('expected first generation id');
+    await vi.waitFor(() => expect(pending.has(firstId)).toBe(true));
     pending.get(firstId)?.({ artifacts: [{ content: '<html></html>' }], message: 'ok' });
     await firstPromise;
     expect(useCodesignStore.getState().generationStage).toBe('done');
@@ -137,6 +137,7 @@ describe('generationStage transitions', () => {
 
     const secondId = useCodesignStore.getState().activeGenerationId;
     if (!secondId) throw new Error('expected second generation id');
+    await vi.waitFor(() => expect(pending.has(secondId)).toBe(true));
     pending.get(secondId)?.({ artifacts: [{ content: '<html></html>' }], message: 'ok' });
     await secondPromise;
     unsub();

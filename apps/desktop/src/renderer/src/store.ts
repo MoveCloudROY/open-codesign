@@ -98,7 +98,6 @@ interface PromptRequest {
 }
 
 interface CodesignState {
-  messages: ChatMessage[];
   previewHtml: string | null;
   /** LRU cache of `previewHtml` per design id, capped to PREVIEW_POOL_LIMIT.
    *  PreviewPane renders one (display:none) iframe per entry so switching back
@@ -522,26 +521,60 @@ async function persistArtifactSnapshot(
   return created?.id ?? null;
 }
 
+/**
+ * Rebuild the agent-facing history from chat_messages (single source of truth
+ * for the sidebar chat). Only user + assistant_text rows contribute — tool_call
+ * / artifact_delivered / error are dropped because the agent re-reads live file
+ * state via text_editor.view(). seedFromSnapshots first so legacy designs with
+ * only snapshot-era user prompts get backfilled. Falls back to [] when designId
+ * is null or IPC is unavailable (renderer tests).
+ */
+async function buildHistoryFromChat(designId: string | null): Promise<ChatMessage[]> {
+  if (!designId || !window.codesign) return [];
+  try {
+    await window.codesign.chat.seedFromSnapshots(designId);
+    const rows = await window.codesign.chat.list(designId);
+    const out: ChatMessage[] = [];
+    for (const row of rows) {
+      if (row.kind === 'user') {
+        const text = (row.payload as { text?: string } | null)?.text;
+        if (typeof text === 'string' && text.length > 0) out.push({ role: 'user', content: text });
+      } else if (row.kind === 'assistant_text') {
+        const text = (row.payload as { text?: string } | null)?.text;
+        if (typeof text === 'string' && text.length > 0)
+          out.push({ role: 'assistant', content: text });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 async function persistDesignState(
   get: GetState,
   designId: string,
-  messages: ChatMessage[],
   previewHtml: string | null,
   artifact: PersistArtifact | null,
 ): Promise<string | null> {
   if (!window.codesign) return null;
   try {
-    await window.codesign.snapshots.replaceMessages(
-      designId,
-      messages.map((m) => ({ role: m.role, content: m.content })),
-    );
     let newSnapshotId: string | null = null;
     if (artifact !== null) {
       newSnapshotId = await persistArtifactSnapshot(designId, artifact);
     }
     if (previewHtml !== null) {
-      const firstUser = messages.find((m) => m.role === 'user');
-      const thumbText = firstUser ? firstUser.content.slice(0, 200) : null;
+      // Thumbnail text = first user prompt ever on this design, sourced from
+      // chat_messages (canonical) instead of the removed store.messages mirror.
+      let thumbText: string | null = null;
+      try {
+        const rows = await window.codesign.chat.list(designId);
+        const firstUser = rows.find((r) => r.kind === 'user');
+        const raw = (firstUser?.payload as { text?: string } | null)?.text;
+        if (typeof raw === 'string' && raw.length > 0) thumbText = raw.slice(0, 200);
+      } catch {
+        // Non-fatal — thumbnail stays unchanged.
+      }
       await window.codesign.snapshots.setThumbnail(designId, thumbText);
     }
     await get().loadDesigns();
@@ -652,7 +685,6 @@ function applyGenerateSuccess(
           )
         : { cache: _state.previewHtmlByDesign, recent: _state.recentDesignIds };
     return {
-      messages: [..._state.messages, { role: 'assistant', content: assistantMessage }],
       previewHtml: nextHtml,
       previewHtmlByDesign: pool.cache,
       recentDesignIds: pool.recent,
@@ -691,7 +723,7 @@ function applyGenerateSuccess(
     const designId = designIdAtStart ?? get().currentDesignId;
     if (designId) {
       const artifact = artifactFromResult(firstArtifact, prompt, assistantMessage);
-      void persistDesignState(get, designId, get().messages, get().previewHtml, artifact);
+      void persistDesignState(get, designId, get().previewHtml, artifact);
       // Sidebar v2: append chat rows for artifact delivery.
       // When agent runtime is active (tool_call rows exist), useAgentStream
       // already persists assistant_text on turn_end with artifact stripping.
@@ -728,8 +760,7 @@ function applyGenerateError(
   const msg = err instanceof Error ? err.message : tr('errors.unknown');
   if (get().activeGenerationId !== generationId) return;
 
-  finishIfCurrent(set, generationId, (state) => ({
-    messages: [...state.messages, { role: 'assistant', content: `Error: ${msg}` }],
+  finishIfCurrent(set, generationId, () => ({
     isGenerating: false,
     activeGenerationId: null,
     generatingDesignId: null,
@@ -868,7 +899,6 @@ export function buildEnrichedPrompt(
 }
 
 export const useCodesignStore = create<CodesignState>((set, get) => ({
-  messages: [],
   previewHtml: null,
   previewHtmlByDesign: {},
   recentDesignIds: [],
@@ -1076,17 +1106,8 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
     const pendingEditIds = pendingEdits.map((c) => c.id);
 
     const generationId = newId();
-    // Cap cross-generate history to the most recent turns. The agent re-reads
-    // the current HTML via text_editor.view() when needed, so older prose in
-    // history offers diminishing value and pushes us toward the token ceiling.
-    const HISTORY_CAP = 12;
-    const fullHistory = get().messages;
-    const history =
-      fullHistory.length > HISTORY_CAP ? fullHistory.slice(-HISTORY_CAP) : fullHistory;
-    const isFirstPrompt = fullHistory.length === 0;
     const designIdAtStart = get().currentDesignId;
-    set((s) => ({
-      messages: [...s.messages, { role: 'user', content: request.prompt }],
+    set(() => ({
       isGenerating: true,
       activeGenerationId: generationId,
       generatingDesignId: designIdAtStart,
@@ -1097,6 +1118,18 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
       selectedElement: null,
       iframeErrors: [],
     }));
+
+    // Cap cross-generate history to the most recent turns. The agent re-reads
+    // the current HTML via text_editor.view() when needed, so older prose in
+    // history offers diminishing value and pushes us toward the token ceiling.
+    const HISTORY_CAP = 12;
+    // chat_messages is the single source of truth for agent history. Fixes
+    // the race where a broken session + "继续" made the agent see a stale or
+    // empty history from a legacy mirror and drift off-task.
+    const fullHistory = await buildHistoryFromChat(designIdAtStart);
+    const history =
+      fullHistory.length > HISTORY_CAP ? fullHistory.slice(-HISTORY_CAP) : fullHistory;
+    const isFirstPrompt = fullHistory.length === 0;
 
     // Append to the new chat_messages table so Sidebar v2 reflects activity
     // even before Workstream B starts emitting streaming tool events. Silent
@@ -1207,15 +1240,7 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
   async retryLastPrompt() {
     const lastPromptInput = get().lastPromptInput;
     if (!lastPromptInput) return;
-
-    const messages = [...get().messages];
-    const lastMessage = messages.at(-1);
-    if (lastMessage?.role === 'assistant' && lastMessage.content.startsWith('Error:'))
-      messages.pop();
-    const maybeUser = messages.at(-1);
-    if (maybeUser?.role === 'user' && maybeUser.content === lastPromptInput.prompt) messages.pop();
-
-    set({ messages, errorMessage: null });
+    set({ errorMessage: null });
     await get().sendPrompt(lastPromptInput);
   },
 
@@ -1228,17 +1253,25 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
     const selection = get().selectedElement;
     if (cfg === null || !cfg.hasKey || html === null || selection === null) return;
 
-    const userMessage: ChatMessage = { role: 'user', content: `Edit ${selection.tag}: ${trimmed}` };
+    const userMessageText = `Edit ${selection.tag}: ${trimmed}`;
     const referenceUrl = normalizeReferenceUrl(get().referenceUrl);
     const attachments = uniqueFiles(get().inputFiles);
+    const designIdAtStart = get().currentDesignId;
 
-    set((s) => ({
-      messages: [...s.messages, userMessage],
+    set(() => ({
       isGenerating: true,
-      generatingDesignId: get().currentDesignId,
+      generatingDesignId: designIdAtStart,
       errorMessage: null,
       iframeErrors: [],
     }));
+
+    if (designIdAtStart) {
+      void get().appendChatMessage({
+        designId: designIdAtStart,
+        kind: 'user',
+        payload: { text: userMessageText },
+      });
+    }
 
     try {
       const result = await window.codesign.applyComment({
@@ -1263,7 +1296,6 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
               )
             : { cache: s.previewHtmlByDesign, recent: s.recentDesignIds };
         return {
-          messages: [...s.messages, { role: 'assistant', content: assistantText }],
           previewHtml: nextHtml,
           previewHtmlByDesign: pool.cache,
           recentDesignIds: pool.recent,
@@ -1273,10 +1305,14 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
           lastUsage: usage,
         };
       });
-      const designId = get().currentDesignId;
-      if (designId) {
-        const artifact = artifactFromResult(firstArtifact, userMessage.content, assistantText);
-        void persistDesignState(get, designId, get().messages, get().previewHtml, artifact);
+      if (designIdAtStart) {
+        void get().appendChatMessage({
+          designId: designIdAtStart,
+          kind: 'assistant_text',
+          payload: { text: assistantText },
+        });
+        const artifact = artifactFromResult(firstArtifact, userMessageText, assistantText);
+        void persistDesignState(get, designIdAtStart, get().previewHtml, artifact);
       }
       if (rejectedUsageFields.length > 0) {
         const detail = rejectedUsageFields.join(', ');
@@ -1284,13 +1320,19 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : tr('errors.unknown');
-      set((s) => ({
-        messages: [...s.messages, { role: 'assistant', content: `Error: ${msg}` }],
+      set(() => ({
         isGenerating: false,
         generatingDesignId: null,
         errorMessage: msg,
         lastError: msg,
       }));
+      if (designIdAtStart) {
+        void get().appendChatMessage({
+          designId: designIdAtStart,
+          kind: 'error',
+          payload: { message: msg },
+        });
+      }
       get().pushToast({
         variant: 'error',
         title: tr('notifications.inlineCommentFailed'),
@@ -1428,7 +1470,6 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
       const design = await window.codesign.snapshots.createDesign(name);
       set({
         currentDesignId: design.id,
-        messages: [],
         previewHtml: null,
         errorMessage: null,
         iframeErrors: [],
@@ -1512,21 +1553,9 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
         currentSnapshotId: null,
         canvasTabs: [FILES_TAB, { kind: 'file', path: 'index.html' }],
         activeCanvasTab: 1,
-        messages: [],
       });
       void get().loadChatForCurrentDesign();
       void get().loadCommentsForCurrentDesign();
-      // Messages list is tiny — await it so callers see fully-hydrated state
-      // when switchDesign resolves. Snapshots we can skip (preview came from
-      // cache); background-refresh them in case of external edits.
-      try {
-        const messages = await window.codesign.snapshots.listMessages(id);
-        if (get().currentDesignId === id) {
-          set({ messages: messages.map((m) => ({ role: m.role, content: m.content })) });
-        }
-      } catch {
-        // Chat list still loads via loadChatForCurrentDesign; tolerable.
-      }
       void (async () => {
         try {
           const snapshots = await window.codesign?.snapshots.list(id);
@@ -1555,16 +1584,12 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
 
     // Cold path — first visit (or evicted from pool). Pay the IPC + parse cost.
     try {
-      const [messages, snapshots] = await Promise.all([
-        window.codesign.snapshots.listMessages(id),
-        window.codesign.snapshots.list(id),
-      ]);
+      const snapshots = await window.codesign.snapshots.list(id);
       const latest = snapshots[0] ?? null;
       const html = latest ? latest.artifactSource : null;
       const incomingPool = recordPreviewInPool(outgoingPool.cache, outgoingPool.recent, id, html);
       set({
         currentDesignId: id,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
         previewHtml: html,
         previewHtmlByDesign: incomingPool.cache,
         recentDesignIds: incomingPool.recent,
@@ -1660,7 +1685,6 @@ export const useCodesignStore = create<CodesignState>((set, get) => ({
         const remaining = get().designs;
         set({
           currentDesignId: null,
-          messages: [],
           previewHtml: null,
           canvasTabs: [FILES_TAB],
           activeCanvasTab: 0,

@@ -26,7 +26,6 @@ function deferred<T>() {
 function resetStore() {
   useCodesignStore.setState({
     ...initialState,
-    messages: [],
     previewHtml: null,
     isGenerating: false,
     activeGenerationId: null,
@@ -70,6 +69,10 @@ describe('useCodesignStore iframe error handling', () => {
 
     expect(useCodesignStore.getState().iframeErrors).toEqual([]);
     expect(useCodesignStore.getState().isGenerating).toBe(true);
+
+    // sendPrompt awaits buildHistoryFromChat before invoking generate — flush
+    // that microtask so the mock is called and resolveGenerate captured.
+    await vi.waitFor(() => expect(generate).toHaveBeenCalled());
 
     resolveGenerate?.({
       artifacts: [{ content: '<html></html>' }],
@@ -156,9 +159,6 @@ describe('useCodesignStore generation cancellation', () => {
     expect(useCodesignStore.getState().activeGenerationId).toBe(secondId);
     expect(useCodesignStore.getState().isGenerating).toBe(true);
     expect(useCodesignStore.getState().previewHtml).toBeNull();
-    expect(useCodesignStore.getState().messages.some((m) => m.content === 'Old result')).toBe(
-      false,
-    );
 
     pendingById.get(secondId)?.resolve({
       artifacts: [{ content: '<html>fresh</html>' }],
@@ -210,6 +210,8 @@ describe('useCodesignStore generation cancellation', () => {
     const generationId = useCodesignStore.getState().activeGenerationId;
     if (!generationId) throw new Error('expected generation id');
 
+    await vi.waitFor(() => expect(pendingById.has(generationId)).toBe(true));
+
     pendingById.get(generationId)?.reject(new Error('Upstream proxy aborted the response'));
     await run;
 
@@ -218,10 +220,6 @@ describe('useCodesignStore generation cancellation', () => {
     expect(state.activeGenerationId).toBeNull();
     expect(state.errorMessage).toBe('Upstream proxy aborted the response');
     expect(state.lastError).toBe('Upstream proxy aborted the response');
-    expect(state.messages.at(-1)).toEqual({
-      role: 'assistant',
-      content: 'Error: Upstream proxy aborted the response',
-    });
     expect(state.toasts.at(-1)).toMatchObject({
       variant: 'error',
       description: 'Upstream proxy aborted the response',
@@ -432,7 +430,7 @@ describe('useCodesignStore design management', () => {
     await initI18n('en');
   });
 
-  it('switches the message list when switchDesign is called and isolates state per design', async () => {
+  it('isolates preview + currentDesignId per design when switchDesign is called', async () => {
     const designs = [
       {
         schemaVersion: 1 as const,
@@ -454,19 +452,10 @@ describe('useCodesignStore design management', () => {
       },
     ];
 
-    const messagesByDesign: Record<string, Array<{ role: string; content: string }>> = {
-      'design-a': [
-        { role: 'user', content: 'A user' },
-        { role: 'assistant', content: 'A reply' },
-      ],
-      'design-b': [{ role: 'user', content: 'B user' }],
-    };
-
     vi.stubGlobal('window', {
       codesign: {
         snapshots: {
           listDesigns: vi.fn(() => Promise.resolve(designs)),
-          listMessages: vi.fn((id: string) => Promise.resolve(messagesByDesign[id] ?? [])),
           list: vi.fn(() => Promise.resolve([])),
         },
       },
@@ -477,13 +466,9 @@ describe('useCodesignStore design management', () => {
     await useCodesignStore.getState().switchDesign('design-b');
 
     expect(useCodesignStore.getState().currentDesignId).toBe('design-b');
-    expect(useCodesignStore.getState().messages.map((m) => m.content)).toEqual(['B user']);
 
     await useCodesignStore.getState().switchDesign('design-a');
-    expect(useCodesignStore.getState().messages.map((m) => m.content)).toEqual([
-      'A user',
-      'A reply',
-    ]);
+    expect(useCodesignStore.getState().currentDesignId).toBe('design-a');
   });
 
   it('createNewDesign resets messages + preview and stores the new id as current', async () => {
@@ -508,7 +493,6 @@ describe('useCodesignStore design management', () => {
     });
 
     useCodesignStore.setState({
-      messages: [{ role: 'user', content: 'leftover' }],
       previewHtml: '<html>old</html>',
       currentDesignId: 'old-id',
     });
@@ -517,7 +501,6 @@ describe('useCodesignStore design management', () => {
     expect(result?.id).toBe('fresh');
     const state = useCodesignStore.getState();
     expect(state.currentDesignId).toBe('fresh');
-    expect(state.messages).toEqual([]);
     expect(state.previewHtml).toBeNull();
   });
 
@@ -698,7 +681,6 @@ describe('useCodesignStore artifact persistence', () => {
     // Simulate a fresh app load: blow away in-memory state then switchDesign.
     useCodesignStore.setState({
       currentDesignId: null,
-      messages: [],
       previewHtml: null,
     });
 
@@ -707,10 +689,6 @@ describe('useCodesignStore artifact persistence', () => {
     const restored = useCodesignStore.getState();
     expect(restored.currentDesignId).toBe(designId);
     expect(restored.previewHtml).toBe('<html><body>persisted</body></html>');
-    expect(restored.messages).toEqual([
-      { role: 'user', content: 'make a hero section' },
-      { role: 'assistant', content: 'Generated.' },
-    ]);
   });
 });
 
