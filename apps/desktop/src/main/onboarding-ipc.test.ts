@@ -21,6 +21,7 @@ vi.mock('./electron-runtime', () => ({
       handlers.set(channel, fn);
     },
   },
+  dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) },
   shell: { openPath: vi.fn() },
 }));
 
@@ -50,8 +51,7 @@ vi.mock('electron-log/main', () => ({
 }));
 
 vi.mock('./config', () => ({
-  configPath: () => '/tmp/config.toml',
-  configDir: () => '/tmp',
+  defaultConfigDir: () => '/tmp/config',
   readConfig: vi.fn(async () => null),
   writeConfig: vi.fn(async () => {}),
 }));
@@ -82,7 +82,28 @@ vi.mock('./keychain-ux', () => ({
 }));
 
 vi.mock('./storage-settings', () => ({
-  buildAppPaths: vi.fn(() => ({})),
+  buildAppPathsForLocations: vi.fn(() => ({})),
+  getDefaultUserDataDir: vi.fn(() => '/tmp/data'),
+  patchForStorageKind: vi.fn((kind: string, dir: string) => ({ [`${kind}Dir`]: dir })),
+  readPersistedStorageLocations: vi.fn(async () => ({})),
+  writeStorageLocations: vi.fn(async () => ({})),
+}));
+
+vi.mock('./logger', () => ({
+  defaultLogsDir: () => '/tmp/logs',
+  getLogger: () => ({
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  }),
+}));
+
+vi.mock('./imports/codex-config', () => ({
+  readCodexConfig: vi.fn(async () => null),
+}));
+
+vi.mock('./imports/claude-code-config', () => ({
+  readClaudeCodeSettings: vi.fn(async () => null),
 }));
 
 vi.mock('@open-codesign/providers', () => ({
@@ -99,13 +120,14 @@ describe('registerOnboardingIpc — channel versioning', () => {
     expect(registeredChannels).toContain('settings:list-providers');
   });
 
-  it('registers all eight settings v1 channels', async () => {
+  it('registers all settings v1 channels', async () => {
     const v1Channels = [
       'settings:v1:list-providers',
       'settings:v1:add-provider',
       'settings:v1:delete-provider',
       'settings:v1:set-active-provider',
       'settings:v1:get-paths',
+      'settings:v1:choose-storage-folder',
       'settings:v1:open-folder',
       'settings:v1:reset-onboarding',
       'settings:v1:toggle-devtools',
@@ -116,13 +138,14 @@ describe('registerOnboardingIpc — channel versioning', () => {
     }
   });
 
-  it('preserves all eight legacy settings shim channels for backward compat', async () => {
+  it('preserves all legacy settings shim channels for backward compat', async () => {
     const legacyChannels = [
       'settings:list-providers',
       'settings:add-provider',
       'settings:delete-provider',
       'settings:set-active-provider',
       'settings:get-paths',
+      'settings:choose-storage-folder',
       'settings:open-folder',
       'settings:reset-onboarding',
       'settings:toggle-devtools',
@@ -238,5 +261,45 @@ describe('getApiKeyForProvider — API key retrieval', () => {
   it('throws PROVIDER_KEY_MISSING when provider has no stored secret', async () => {
     const { getApiKeyForProvider } = await import('./onboarding-ipc');
     expect(() => getApiKeyForProvider('openai')).toThrow(/PROVIDER_KEY_MISSING|No API key stored/);
+  });
+});
+
+describe('config:v1:import-codex-config empty env handling', () => {
+  it('imports providers without encrypting empty env secrets', async () => {
+    const { readCodexConfig } = await import('./imports/codex-config');
+    const { encryptSecret } = await import('./keychain');
+    const { writeConfig } = await import('./config');
+    vi.mocked(encryptSecret).mockClear();
+    vi.mocked(writeConfig).mockClear();
+    vi.mocked(readCodexConfig).mockResolvedValueOnce({
+      providers: [
+        {
+          id: 'codex-empty-env',
+          name: 'Codex (imported)',
+          builtin: false,
+          wire: 'openai-chat',
+          baseUrl: 'https://api.example.com/v1',
+          defaultModel: 'gpt-test',
+          envKey: 'OPEN_CODESIGN_EMPTY_ENV_FOR_TEST',
+        },
+      ],
+      activeProvider: 'codex-empty-env',
+      activeModel: 'gpt-test',
+      envKeyMap: { 'codex-empty-env': 'OPEN_CODESIGN_EMPTY_ENV_FOR_TEST' },
+      warnings: [],
+    });
+    process.env['OPEN_CODESIGN_EMPTY_ENV_FOR_TEST'] = '   ';
+
+    const handler = handlers.get('config:v1:import-codex-config');
+    expect(handler).toBeDefined();
+    await expect(handler?.({} as unknown)).resolves.toMatchObject({
+      provider: 'codex-empty-env',
+      hasKey: true,
+    });
+
+    expect(encryptSecret).not.toHaveBeenCalled();
+    const written = vi.mocked(writeConfig).mock.calls.at(-1)?.[0];
+    expect(written?.secrets['codex-empty-env']).toBeUndefined();
+    delete process.env['OPEN_CODESIGN_EMPTY_ENV_FOR_TEST'];
   });
 });

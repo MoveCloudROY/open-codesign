@@ -14,13 +14,13 @@ import {
   hydrateConfig,
   isSupportedOnboardingProvider,
 } from '@open-codesign/shared';
-import { configDir, configPath, readConfig, writeConfig } from './config';
-import { ipcMain, shell } from './electron-runtime';
+import { defaultConfigDir, readConfig, writeConfig } from './config';
+import { dialog, ipcMain, shell } from './electron-runtime';
 import { type ClaudeCodeImport, readClaudeCodeSettings } from './imports/claude-code-config';
 import { type CodexImport, readCodexConfig } from './imports/codex-config';
 import { buildSecretRef, decryptSecret, migrateSecretMasks, tryBuildSecretRef } from './keychain';
 import { prepareKeychain } from './keychain-ux';
-import { getLogPath, getLogger } from './logger';
+import { defaultLogsDir, getLogger } from './logger';
 import {
   type ProviderRow,
   assertProviderHasStoredSecret,
@@ -29,7 +29,15 @@ import {
   isKeylessProviderAllowed,
   toProviderRows,
 } from './provider-settings';
-import { buildAppPaths } from './storage-settings';
+import {
+  type AppPaths,
+  type StorageKind,
+  buildAppPathsForLocations,
+  getDefaultUserDataDir,
+  patchForStorageKind,
+  readPersistedStorageLocations,
+  writeStorageLocations,
+} from './storage-settings';
 
 const logger = getLogger('settings-ipc');
 
@@ -387,8 +395,42 @@ async function runSetActiveProvider(raw: unknown): Promise<OnboardingState> {
   return toState(cachedConfig);
 }
 
-function runGetPaths() {
-  return buildAppPaths(configPath(), getLogPath(), configDir());
+function defaultDataDir(): string {
+  return getDefaultUserDataDir();
+}
+
+function getStoragePathDefaults() {
+  return {
+    configDir: defaultConfigDir(),
+    logsDir: defaultLogsDir(),
+    dataDir: defaultDataDir(),
+  };
+}
+
+async function runGetPaths(): Promise<AppPaths> {
+  const persisted = await readPersistedStorageLocations();
+  return buildAppPathsForLocations(persisted, getStoragePathDefaults());
+}
+
+function parseStorageKind(raw: unknown): StorageKind {
+  if (raw === 'config' || raw === 'logs' || raw === 'data') return raw;
+  throw new CodesignError('storage kind must be "config", "logs", or "data"', 'IPC_BAD_INPUT');
+}
+
+async function runChooseStorageFolder(raw: unknown): Promise<AppPaths> {
+  const kind = parseStorageKind(raw);
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return runGetPaths();
+  }
+  const selected = result.filePaths[0];
+  if (selected === undefined || selected.trim().length === 0) {
+    return runGetPaths();
+  }
+  await writeStorageLocations(patchForStorageKind(kind, selected));
+  return runGetPaths();
 }
 
 async function runOpenFolder(raw: unknown): Promise<void> {
@@ -636,7 +678,7 @@ async function runImportCodex(imported: CodexImport): Promise<OnboardingState> {
   for (const entry of imported.providers) {
     nextProviders[entry.id] = entry;
     if (entry.envKey !== undefined) {
-      const envValue = process.env[entry.envKey];
+      const envValue = process.env[entry.envKey]?.trim();
       if (envValue !== undefined && envValue.length > 0) {
         const ref = tryBuildSecretRef(envValue);
         if (ref !== null) nextSecrets[entry.id] = ref;
@@ -680,8 +722,9 @@ async function runImportClaudeCode(imported: ClaudeCodeImport): Promise<Onboardi
     }
   }
   nextProviders[imported.provider.id] = imported.provider;
-  if (imported.apiKey !== null) {
-    const ref = tryBuildSecretRef(imported.apiKey);
+  const importedApiKey = imported.apiKey?.trim();
+  if (importedApiKey !== undefined && importedApiKey.length > 0) {
+    const ref = tryBuildSecretRef(importedApiKey);
     if (ref !== null) nextSecrets[imported.provider.id] = ref;
   }
   const next = hydrateConfig({
@@ -891,7 +934,12 @@ export function registerOnboardingIpc(): void {
     async (_e, raw: unknown): Promise<OnboardingState> => runSetActiveProvider(raw),
   );
 
-  ipcMain.handle('settings:v1:get-paths', () => runGetPaths());
+  ipcMain.handle('settings:v1:get-paths', async (): Promise<AppPaths> => runGetPaths());
+
+  ipcMain.handle(
+    'settings:v1:choose-storage-folder',
+    async (_e, raw: unknown): Promise<AppPaths> => runChooseStorageFolder(raw),
+  );
 
   ipcMain.handle(
     'settings:v1:open-folder',
@@ -929,9 +977,14 @@ export function registerOnboardingIpc(): void {
     },
   );
 
-  ipcMain.handle('settings:get-paths', () => {
+  ipcMain.handle('settings:get-paths', async (): Promise<AppPaths> => {
     logger.warn('legacy settings:get-paths channel used, schedule removal next minor');
     return runGetPaths();
+  });
+
+  ipcMain.handle('settings:choose-storage-folder', async (_e, raw: unknown): Promise<AppPaths> => {
+    logger.warn('legacy settings:choose-storage-folder channel used, schedule removal next minor');
+    return runChooseStorageFolder(raw);
   });
 
   ipcMain.handle('settings:open-folder', async (_e, raw: unknown) => {

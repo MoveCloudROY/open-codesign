@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,7 @@ import { preparePromptContext } from './prompt-context';
 import { isKeylessProviderAllowed, resolveActiveModel } from './provider-settings';
 import { safeInitSnapshotsDb } from './snapshots-db';
 import { registerSnapshotsIpc, registerSnapshotsUnavailableIpc } from './snapshots-ipc';
+import { initStorageSettings } from './storage-settings';
 
 // ESM shim: package.json "type": "module" means the built bundle is ESM and
 // __dirname/__filename don't exist. Derive them from import.meta.url so the
@@ -55,6 +57,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let mainWindow: ElectronBrowserWindow | null = null;
+
+const defaultUserDataDir = app.getPath('userData');
+const storageLocations = initStorageSettings(defaultUserDataDir);
+if (storageLocations.dataDir !== undefined) {
+  mkdirSync(storageLocations.dataDir, { recursive: true });
+  app.setPath('userData', storageLocations.dataDir);
+}
 
 /**
  * Workstream B Phase 1 feature flag. When truthy, `codesign:*:generate` routes

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import log from 'electron-log/main';
 import { app } from './electron-runtime';
+import { getActiveStorageLocations } from './storage-settings';
 
 /**
  * Centralized logger for the main + preload + renderer processes.
@@ -19,11 +20,19 @@ import { app } from './electron-runtime';
 
 let initialized = false;
 
+export function defaultLogsDir(): string {
+  return app.getPath('logs');
+}
+
+export function logsDir(): string {
+  return getActiveStorageLocations().logsDir ?? defaultLogsDir();
+}
+
 export function initLogger(): typeof log {
   if (initialized) return log;
   initialized = true;
 
-  log.transports.file.resolvePathFn = () => join(app.getPath('logs'), 'main.log');
+  log.transports.file.resolvePathFn = () => getLogPath();
   log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
   log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {scope} {text}';
   log.transports.console.level = app.isPackaged ? 'warn' : 'info';
@@ -59,5 +68,5 @@ export function getLogger(scope: string) {
 }
 
 export function getLogPath(): string {
-  return join(app.getPath('logs'), 'main.log');
+  return join(logsDir(), 'main.log');
 }

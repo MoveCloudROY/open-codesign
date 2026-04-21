@@ -22,7 +22,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { AppPaths, Preferences, ProviderRow } from '../../../preload/index';
+import type { AppPaths, Preferences, ProviderRow, StorageKind } from '../../../preload/index';
 import { useCodesignStore } from '../store';
 import { AddCustomProviderModal } from './AddCustomProviderModal';
 
@@ -882,7 +882,17 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-function PathRow({ label, value, onOpen }: { label: string; value: string; onOpen: () => void }) {
+function PathRow({
+  label,
+  value,
+  onOpen,
+  onChoose,
+}: {
+  label: string;
+  value: string;
+  onOpen: () => void;
+  onChoose?: () => void;
+}) {
   const t = useT();
   return (
     <div className="space-y-1.5">
@@ -890,6 +900,15 @@ function PathRow({ label, value, onOpen }: { label: string; value: string; onOpe
         <Label>{label}</Label>
         <div className="flex gap-1.5">
           <CopyButton value={value} />
+          {onChoose !== undefined ? (
+            <button
+              type="button"
+              onClick={onChoose}
+              className="h-7 px-2 rounded-[var(--radius-sm)] text-[var(--text-xs)] text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+            >
+              {t('settings.storage.change')}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onOpen}
@@ -914,6 +933,8 @@ function StorageTab() {
   const completeOnboarding = useCodesignStore((s) => s.completeOnboarding);
   const [paths, setPaths] = useState<AppPaths | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [choosing, setChoosing] = useState<StorageKind | null>(null);
+  const canChoose = choosing === null;
 
   useEffect(() => {
     if (!window.codesign) return;
@@ -941,6 +962,24 @@ function StorageTab() {
     }
   }
 
+  async function chooseStorageFolder(kind: StorageKind) {
+    if (!window.codesign?.settings.chooseStorageFolder) return;
+    setChoosing(kind);
+    try {
+      const next = await window.codesign.settings.chooseStorageFolder(kind);
+      setPaths(next);
+      pushToast({ variant: 'success', title: t('settings.storage.locationSavedToast') });
+    } catch (err) {
+      pushToast({
+        variant: 'error',
+        title: t('settings.storage.locationSaveFailed'),
+        description: err instanceof Error ? err.message : t('settings.common.unknownError'),
+      });
+    } finally {
+      setChoosing(null);
+    }
+  }
+
   async function handleReset() {
     if (!window.codesign) return;
     await window.codesign.settings.resetOnboarding();
@@ -954,6 +993,9 @@ function StorageTab() {
   return (
     <div className="space-y-5">
       <SectionTitle>{t('settings.storage.pathsTitle')}</SectionTitle>
+      <p className="text-[var(--text-xs)] text-[var(--color-text-muted)] leading-[var(--leading-body)]">
+        {t('settings.storage.restartHint')}
+      </p>
 
       {paths === null ? (
         <div className="flex items-center gap-2 py-4 text-[var(--text-sm)] text-[var(--color-text-muted)]">
@@ -965,17 +1007,20 @@ function StorageTab() {
           <PathRow
             label={t('settings.storage.config')}
             value={paths.config}
-            onOpen={() => openFolder(paths.configFolder)}
+            onOpen={() => void openFolder(paths.configFolder)}
+            {...(canChoose ? { onChoose: () => void chooseStorageFolder('config') } : {})}
           />
           <PathRow
             label={t('settings.storage.logs')}
             value={paths.logs}
-            onOpen={() => openFolder(paths.logsFolder)}
+            onOpen={() => void openFolder(paths.logsFolder)}
+            {...(canChoose ? { onChoose: () => void chooseStorageFolder('logs') } : {})}
           />
           <PathRow
             label={t('settings.storage.data')}
             value={paths.data}
-            onOpen={() => openFolder(paths.data)}
+            onOpen={() => void openFolder(paths.data)}
+            {...(canChoose ? { onChoose: () => void chooseStorageFolder('data') } : {})}
           />
         </div>
       )}

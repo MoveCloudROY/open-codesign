@@ -50,6 +50,9 @@ win:
   target:
     - target: nsis
       arch: [x64, arm64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 linux:
   icon: resources/icon.png
   target:

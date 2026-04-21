@@ -82,6 +82,8 @@ export interface AppPaths {
   data: string;
 }
 
+export type StorageKind = 'config' | 'logs' | 'data';
+
 export type UpdateChannel = 'stable' | 'beta';
 
 export interface GenerateArtifact {
@@ -239,6 +241,8 @@ const api = {
     setActiveProvider: (input: { provider: string; modelPrimary: string }) =>
       ipcRenderer.invoke('settings:v1:set-active-provider', input) as Promise<OnboardingState>,
     getPaths: () => ipcRenderer.invoke('settings:v1:get-paths') as Promise<AppPaths>,
+    chooseStorageFolder: (kind: StorageKind) =>
+      ipcRenderer.invoke('settings:v1:choose-storage-folder', kind) as Promise<AppPaths>,
     openFolder: (path: string) =>
       ipcRenderer.invoke('settings:v1:open-folder', path) as Promise<void>,
     resetOnboarding: () => ipcRenderer.invoke('settings:v1:reset-onboarding') as Promise<void>,

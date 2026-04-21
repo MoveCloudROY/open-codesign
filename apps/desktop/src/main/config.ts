@@ -9,13 +9,18 @@ import {
   toPersistedV3,
 } from '@open-codesign/shared';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import { getActiveStorageLocations } from './storage-settings';
 
 const XDG_DEFAULT = join(homedir(), '.config', 'open-codesign');
 
-export function configDir(): string {
+export function defaultConfigDir(): string {
   const xdg = process.env['XDG_CONFIG_HOME'];
   if (xdg && xdg.length > 0) return join(xdg, 'open-codesign');
   return XDG_DEFAULT;
+}
+
+export function configDir(): string {
+  return getActiveStorageLocations().configDir ?? defaultConfigDir();
 }
 
 export function configPath(): string {
