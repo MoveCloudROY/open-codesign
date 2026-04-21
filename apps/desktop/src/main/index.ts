@@ -613,6 +613,13 @@ function registerIpcHandlers(): void {
       );
     }
     const active = resolveActiveModel(cfg, payload.model);
+    if (active.model.provider === 'chatgpt-codex') {
+      inFlight.delete(id);
+      throw new CodesignError(
+        'ChatGPT 订阅登录需要 v1 generate 通道。请重启 open-codesign 升级到最新客户端。',
+        'PROVIDER_NOT_SUPPORTED',
+      );
+    }
     let apiKey: string;
     try {
       apiKey = getApiKeyForProvider(active.model.provider);
