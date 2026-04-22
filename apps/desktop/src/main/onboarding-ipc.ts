@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { type ValidateResult, pingProvider } from '@open-codesign/providers';
 import {
   BUILTIN_PROVIDERS,
@@ -21,7 +22,7 @@ import { buildAuthHeadersForWire } from './auth-headers';
 import { defaultConfigDir, readConfig, writeConfig } from './config';
 import { dialog, ipcMain, shell } from './electron-runtime';
 import { type ClaudeCodeImport, readClaudeCodeSettings } from './imports/claude-code-config';
-import { type CodexImport, readCodexConfig } from './imports/codex-config';
+import { type CodexImport, codexAuthPath, readCodexConfig } from './imports/codex-config';
 import { buildSecretRef, decryptSecret, migrateSecrets, tryBuildSecretRef } from './keychain';
 import { defaultLogsDir, getLogger } from './logger';
 import {
@@ -750,10 +751,23 @@ interface ExternalConfigsDetection {
   claudeCode?: ClaudeCodeDetectionMeta;
 }
 
+async function detectChatgptSubscription(): Promise<boolean> {
+  try {
+    const raw = await readFile(codexAuthPath(), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return false;
+    return (parsed as Record<string, unknown>)['auth_mode'] === 'chatgpt';
+  } catch {
+    return false;
+  }
+}
+
 async function runImportCodex(imported: CodexImport): Promise<OnboardingState> {
   if (imported.providers.length === 0) {
     throw new CodesignError(
-      'Codex config has no providers to bring in',
+      (await detectChatgptSubscription())
+        ? '检测到 Codex 使用 ChatGPT 订阅登录（auth_mode: chatgpt），无法自动导入为 API key provider。"用 ChatGPT 订阅登录"功能仍在打磨中，下个版本开放 —— 目前请在 ~/.codex/config.toml 里手动配置 [model_providers]，或改用 API key 登录 Codex。'
+        : 'Codex 配置里没有可导入的 API provider（~/.codex/config.toml 里缺少 [model_providers] 段）。',
       ERROR_CODES.CONFIG_MISSING,
     );
   }
