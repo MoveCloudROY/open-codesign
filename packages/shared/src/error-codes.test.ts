@@ -64,3 +64,12 @@ describe('ERROR_CODE_DESCRIPTIONS', () => {
     }
   });
 });
+
+describe('ERROR_CODE_DESCRIPTIONS i18n keys', () => {
+  it('every code has a userFacingKey matching err.<CODE>', () => {
+    for (const code of Object.values(ERROR_CODES)) {
+      const desc = ERROR_CODE_DESCRIPTIONS[code];
+      expect(desc.userFacingKey, `missing userFacingKey for ${code}`).toBe(`err.${code}`);
+    }
+  });
+});
