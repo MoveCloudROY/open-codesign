@@ -95,7 +95,6 @@ const PARAGRAPH_RE = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
 export function extractSlides(html: string): SlideContent[] {
   const sections: string[] = [];
   let m: RegExpExecArray | null;
-  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration
   while ((m = SECTION_RE.exec(html)) !== null) sections.push(m[1] ?? '');
   if (sections.length === 0) sections.push(html);
   return sections.map(parseSlide);
@@ -108,14 +107,12 @@ function parseSlide(fragment: string): SlideContent {
 
   const bullets: string[] = [];
   let li: RegExpExecArray | null;
-  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration
   while ((li = LIST_ITEM_RE.exec(fragment)) !== null) {
     const text = stripHtml(li[1] ?? '');
     if (text) bullets.push(text);
   }
   if (bullets.length === 0) {
     let p: RegExpExecArray | null;
-    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration
     while ((p = PARAGRAPH_RE.exec(fragment)) !== null) {
       const text = stripHtml(p[1] ?? '');
       if (text) bullets.push(text);
