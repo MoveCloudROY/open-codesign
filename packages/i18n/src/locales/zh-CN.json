@@ -666,8 +666,6 @@
     "copyStack": "复制堆栈",
     "reportOnGitHub": "在 GitHub 反馈",
     "reportViaDiagnostics": "通过诊断面板上报",
-    "reportViaDiagnosticsEmpty": "暂无诊断事件可上报。",
-    "reportDiagnosticsUnavailable": "找不到对应的诊断事件。请复制堆栈信息并手动开 issue。",
     "reload": "重新加载"
   },
   "errors": {
@@ -753,13 +751,6 @@
     "status": "状态：{{status}}",
     "attempted": "我们尝试了：{{url}}",
     "mostLikelyCause": "最可能的原因：",
-    "toast": {
-      "resolving": "诊断信息加载中…",
-      "noEvent": "找不到对应的诊断事件",
-      "noEventFallbackTitle": "无法自动上报",
-      "noEventFallbackDescription": "此错误未记录到诊断库。请打开日志文件夹，手动提 issue 附上相关日志。",
-      "openLogFolder": "打开日志文件夹"
-    },
     "cause": {
       "keyInvalid": "API Key 无效或已被撤销。",
       "balanceEmpty": "账户余额不足。",
@@ -807,8 +798,6 @@
       "cancel": "取消",
       "copied": "已复制",
       "generating": "正在生成诊断包…",
-      "eventNotFound": "找不到该事件 — 可能已被清理。",
-      "loading": "加载事件中…",
       "close": "关闭",
       "scope": "范围",
       "runId": "Run ID",
