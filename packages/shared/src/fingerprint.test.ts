@@ -91,4 +91,16 @@ describe('normalizeFrame', () => {
   it('strips paths from paren-less ~/ frames', () => {
     expect(normalizeFrame('at ~/proj/src/foo.js:1:1')).toBe('at foo.js');
   });
+
+  it('strips Vite HMR cache-buster `?t=...` from paren frames', () => {
+    expect(normalizeFrame('at ProviderCard (Settings.tsx?t=1776846744402)')).toBe(
+      'at ProviderCard (Settings.tsx)',
+    );
+  });
+
+  it('strips Vite HMR cache-buster `?t=...` from paren-less frames', () => {
+    expect(normalizeFrame('at /Users/x/proj/src/Settings.tsx?t=1776846744402:1:1')).toBe(
+      'at Settings.tsx',
+    );
+  });
 });
