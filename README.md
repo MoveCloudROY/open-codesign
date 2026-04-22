@@ -19,7 +19,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue" /></a>
   <a href="https://github.com/OpenCoworkAI/open-codesign/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/OpenCoworkAI/open-codesign/ci.yml?label=CI" /></a>
   <a href="https://github.com/OpenCoworkAI/open-codesign/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/OpenCoworkAI/open-codesign?style=social" /></a>
-  <a href="./README.zh-CN.md#%E7%A4%BE%E7%BE%A4"><img alt="WeChat Group" src="https://img.shields.io/badge/WeChat-Group-07C160?logo=wechat&logoColor=white" /></a>
+  <a href="#community"><img alt="WeChat Group" src="https://img.shields.io/badge/WeChat-Group-07C160?logo=wechat&logoColor=white" /></a>
 </p>
 
 <p align="center">
@@ -245,9 +245,17 @@ Have a different priority in mind? [Open an issue](https://github.com/OpenCowork
 
 ---
 
-## Star history
+## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=OpenCoworkAI/open-codesign&type=Date)](https://star-history.com/#OpenCoworkAI/open-codesign&Date)
+<p align="center">
+  <a href="https://star-history.com/#OpenCoworkAI/open-codesign&Date">
+    <img
+      alt="Star History Chart"
+      src="https://api.star-history.com/image?repos=OpenCoworkAI/open-codesign&type=Date"
+      width="720"
+    />
+  </a>
+</p>
 
 ---
 
@@ -272,11 +280,27 @@ If you like Open CoDesign, you may also want to check out our earlier project, [
 
 ## Community
 
-Open CoDesign first launched on the [LINUX DO](https://linux.do/) community — thanks to everyone there for early feedback and discussion.
+Open CoDesign first launched on the [LINUX DO](https://linux.do/) community — thanks to everyone there for the early feedback and discussion.
 
 - **[LINUX DO](https://linux.do/)** — Chinese-speaking discussion, use tips, and feedback (primary community).
 - **GitHub Issues** — [bug reports, feature requests, and async discussion](https://github.com/OpenCoworkAI/open-codesign/issues).
-- **WeChat group (Chinese-speaking users)** — scan the QR in [README.zh-CN.md#社群](./README.zh-CN.md#%E7%A4%BE%E7%BE%A4). WeChat group codes rotate every 7 days; we refresh the image in-repo on that cadence.
+
+### WeChat group
+
+For Chinese-speaking users, we also keep a WeChat group for product updates, usage questions, and community discussion.
+
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/OpenCoworkAI/open-codesign/main/website/public/community/wechat-group.jpg"
+    alt="Open CoDesign WeChat group QR code"
+    width="260"
+  />
+</p>
+
+> ⚠️ The WeChat QR code rotates every 7 days and is currently valid until **April 28**.  
+> If the code has expired, please leave a message in [GitHub Issues](https://github.com/OpenCoworkAI/open-codesign/issues) and we will refresh the image in-repo.
+
+See also the Chinese README: [README.zh-CN.md#社群](./README.zh-CN.md#%E7%A4%BE%E7%BE%A4).
 
 ## Contributing
 
