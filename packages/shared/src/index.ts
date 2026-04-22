@@ -326,6 +326,8 @@ export type {
 
 export { ERROR_CODES, ERROR_CODE_DESCRIPTIONS } from './error-codes';
 export type { CodesignErrorCode } from './error-codes';
+export { computeFingerprint, normalizeFrame } from './fingerprint';
+export type { FingerprintInput } from './fingerprint';
 
 export {
   ensureEditmodeMarkers,
