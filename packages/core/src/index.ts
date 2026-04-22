@@ -61,6 +61,8 @@ export interface AttachmentContext {
   path: string;
   excerpt?: string | undefined;
   note?: string | undefined;
+  mediaType?: string | undefined;
+  imageDataUrl?: string | undefined;
 }
 
 export interface ReferenceUrlContext {
@@ -160,9 +162,32 @@ interface ModelRunInput {
   signal?: AbortSignal | undefined;
   onRetry?: ((info: RetryReason) => void) | undefined;
   messages: ChatMessage[];
+  userImages?: Array<{ data: string; mimeType: string }> | undefined;
   logger?: CoreLogger | undefined;
   /** Log step namespace, e.g. 'generate' or 'apply_comment'. Defaults to 'generate'. */
   logScope?: string | undefined;
+}
+
+function attachmentToImageInput(
+  attachment: AttachmentContext,
+): { data: string; mimeType: string } | null {
+  if (!attachment.imageDataUrl || !attachment.mediaType) return null;
+  const prefix = `data:${attachment.mediaType};base64,`;
+  if (!attachment.imageDataUrl.startsWith(prefix)) return null;
+  return {
+    data: attachment.imageDataUrl.slice(prefix.length),
+    mimeType: attachment.mediaType,
+  };
+}
+
+function imageInputsForWire(
+  attachments: AttachmentContext[] | undefined,
+  wire: WireApi | undefined,
+): Array<{ data: string; mimeType: string }> {
+  if (wire !== 'openai-codex-responses') return [];
+  return (attachments ?? [])
+    .map((attachment) => attachmentToImageInput(attachment))
+    .filter((image): image is { data: string; mimeType: string } => image !== null);
 }
 
 function createHtmlArtifact(content: string, index: number): Artifact {
@@ -333,6 +358,7 @@ async function runModel(input: ModelRunInput): Promise<GenerateOutput> {
           ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
           ...(input.wire !== undefined ? { wire: input.wire } : {}),
           ...(input.httpHeaders !== undefined ? { httpHeaders: input.httpHeaders } : {}),
+          ...(input.userImages !== undefined ? { userImages: input.userImages } : {}),
           ...(input.allowKeyless === true ? { allowKeyless: true } : {}),
           ...(input.signal !== undefined ? { signal: input.signal } : {}),
           maxTokens: MAX_OUTPUT_TOKENS,
@@ -645,6 +671,7 @@ export async function generate(input: GenerateInput): Promise<GenerateOutput> {
     signal: input.signal,
     onRetry: input.onRetry,
     messages,
+    userImages: imageInputsForWire(input.attachments, input.wire),
     logger: input.logger,
   });
   return skillResult.warnings.length > 0
@@ -698,6 +725,7 @@ export async function applyComment(input: ApplyCommentInput): Promise<GenerateOu
     signal: input.signal,
     onRetry: input.onRetry,
     messages,
+    userImages: imageInputsForWire(input.attachments, input.wire),
     logger: input.logger,
     logScope: 'apply_comment',
   });
