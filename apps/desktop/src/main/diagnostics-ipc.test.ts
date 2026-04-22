@@ -47,7 +47,11 @@ vi.mock('zip-lib', async () => {
   };
 });
 
-import { redactSensitiveTomlFields, registerDiagnosticsIpc } from './diagnostics-ipc';
+import {
+  buildIssueUrlWithTemplate,
+  redactSensitiveTomlFields,
+  registerDiagnosticsIpc,
+} from './diagnostics-ipc';
 import { initInMemoryDb, listDiagnosticEvents, recordDiagnosticEvent } from './snapshots-db';
 
 function invoke(channel: string, payload: unknown): unknown {
@@ -313,16 +317,18 @@ describe('diagnostics:v1:reportEvent', () => {
     expect(result.bundlePath).toMatch(/open-codesign-diagnostics-.*\.zip$/);
     expect(result.summaryMarkdown).toMatch(/SOMETHING_BROKE/);
     expect(result.issueUrl).toContain('github.com/OpenCoworkAI/open-codesign/issues/new');
-    expect(result.issueUrl).toContain('labels=bug%2Cdiagnostic-auto');
-    expect(result.issueUrl).toContain(encodeURIComponent('[bug] SOMETHING_BROKE'));
-    expect(result.issueUrl).toContain(encodeURIComponent('fp: fp-deadbeef'));
 
-    // Visible attach instruction — the bundle path has to be readable as
-    // markdown on GitHub, not hidden in an HTML comment.
-    const decodedBody = decodeURIComponent(new URL(result.issueUrl).searchParams.get('body') ?? '');
-    expect(decodedBody).toContain('## Diagnostic bundle');
-    expect(decodedBody).toContain('attach the diagnostic zip');
-    expect(decodedBody).toContain(`\`${result.bundlePath}\``);
+    const url = new URL(result.issueUrl);
+    expect(url.searchParams.get('template')).toBe('bug_report.yml');
+    expect(url.searchParams.get('labels')).toBe('bug,triage,diagnostic-auto');
+    expect(url.searchParams.get('title')).toBe('[Bug]: SOMETHING_BROKE (fp: fp-deadbeef)');
+    expect(url.searchParams.get('error_code')).toBe('SOMETHING_BROKE');
+    expect(url.searchParams.get('version')).toBe('0.0.0-test');
+    // process.platform is darwin|linux|win32 in CI — one of the three mapped labels.
+    expect(['macOS', 'Windows', 'Linux']).toContain(url.searchParams.get('platform'));
+    const diagnostics = url.searchParams.get('diagnostics') ?? '';
+    expect(diagnostics).toContain('Bundle saved locally at');
+    expect(diagnostics).toContain(result.bundlePath);
   });
 
   it('throws IPC_NOT_FOUND when event id missing', async () => {
@@ -361,29 +367,94 @@ describe('diagnostics:v1:reportEvent', () => {
     ).rejects.toThrow(/100 entries/);
   });
 
-  it('truncates body when summary exceeds 7 KB', async () => {
+  it('trims logs when total URL would exceed 7KB', () => {
+    // Drive the helper directly so we can force an oversized tail without
+    // fighting the 50-line cap in readLogTail.
+    const event = {
+      id: 1,
+      schemaVersion: 1 as const,
+      ts: 0,
+      level: 'error' as const,
+      code: 'HUGE',
+      scope: 'renderer:app',
+      runId: undefined,
+      fingerprint: 'fp-huge',
+      message: 'A'.repeat(2000),
+      stack: undefined,
+      transient: false,
+      count: 1,
+      context: undefined,
+    };
+    // Lines contain `\n`-heavy payload so URL encoding of %0A inflates the
+    // encoded logs field past the 7KB URL cap and forces the trim path.
+    const logTail = Array.from(
+      { length: 300 },
+      (_, i) => `line ${i}:\n\n\n${'X'.repeat(20)}\n\n\n`,
+    );
+    const url = buildIssueUrlWithTemplate({
+      event,
+      bundlePath: '/tmp/open-codesign-diagnostics-test.zip',
+      appVersion: '9.9.9-test',
+      platform: 'darwin',
+      platformVersion: '24.0.0',
+      logTail,
+    });
+    expect(url.length).toBeLessThanOrEqual(7100);
+    const logs = new URL(url).searchParams.get('logs') ?? '';
+    expect(logs).toMatch(/truncated; see attached bundle/);
+  });
+
+  it('issueUrl uses bug_report.yml template with pre-filled error_code + version + platform', async () => {
     const db = initInMemoryDb();
     recordDiagnosticEvent(db, {
       level: 'error',
-      code: 'HUGE',
+      code: 'PROVIDER_HTTP_4XX',
+      scope: 'provider',
+      fingerprint: 'fp-prov',
+      message: 'upstream 400',
+      runId: undefined,
+      stack: undefined,
+      transient: false,
+      context: { upstream_provider: 'anthropic', upstream_status: 400 },
+    });
+    const rows = listDiagnosticEvents(db, { includeTransient: true });
+    const eventId = rows[0]?.id ?? 0;
+    registerDiagnosticsIpc(db);
+
+    const result = (await invoke('diagnostics:v1:reportEvent', baseReportInput(eventId))) as {
+      issueUrl: string;
+    };
+    const url = new URL(result.issueUrl);
+    expect(url.searchParams.get('template')).toBe('bug_report.yml');
+    expect(url.searchParams.get('error_code')).toBe('PROVIDER_HTTP_4XX');
+    expect(url.searchParams.get('version')).toBe('0.0.0-test');
+    expect(url.searchParams.get('provider')).toBe('Anthropic');
+    const actual = url.searchParams.get('actual') ?? '';
+    expect(actual).toContain('upstream_status=400');
+  });
+
+  it('issueUrl encodes special characters correctly', async () => {
+    const db = initInMemoryDb();
+    recordDiagnosticEvent(db, {
+      level: 'error',
+      code: 'WEIRD_CODE',
       scope: 'renderer:app',
-      fingerprint: 'fp-huge',
-      message: 'A'.repeat(15000),
+      fingerprint: 'fp-weird',
+      message: 'boom & spaces + "quotes" / slashes',
       runId: undefined,
       stack: undefined,
       transient: false,
     });
     const rows = listDiagnosticEvents(db, { includeTransient: true });
     const eventId = rows[0]?.id ?? 0;
-
     registerDiagnosticsIpc(db);
-    const result = (await invoke(
-      'diagnostics:v1:reportEvent',
-      baseReportInput(eventId, { includePromptText: true }),
-    )) as { issueUrl: string };
 
-    const decodedBody = decodeURIComponent(new URL(result.issueUrl).searchParams.get('body') ?? '');
-    expect(decodedBody).toMatch(/truncated/);
+    const result = (await invoke('diagnostics:v1:reportEvent', baseReportInput(eventId))) as {
+      issueUrl: string;
+    };
+    // URL parsing must succeed and round-trip the message.
+    const url = new URL(result.issueUrl);
+    expect(url.searchParams.get('actual')).toContain('boom & spaces + "quotes" / slashes');
   });
 });
 

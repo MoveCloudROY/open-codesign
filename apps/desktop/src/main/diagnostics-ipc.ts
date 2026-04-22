@@ -47,8 +47,44 @@ type Database = BetterSqlite3.Database;
 const logger = getLogger('diagnostics-ipc');
 
 const GITHUB_REPO_URL = 'https://github.com/OpenCoworkAI/open-codesign';
-const GH_BODY_MAX = 7000;
+// GitHub issue URL soft cap. Past ~8KB the URL is silently truncated on some
+// browsers; we keep 7KB as headroom and trim `logs` first when needed.
+const GH_URL_MAX = 7000;
+const ACTUAL_MAX = 1000;
+const LOGS_MAX = 4000;
+const DIAGNOSTICS_MAX = 500;
 const REPORTED_FINGERPRINTS_FILENAME = 'reported-fingerprints.json';
+
+/**
+ * Map `process.platform` to the exact labels in `.github/ISSUE_TEMPLATE/bug_report.yml`
+ * platform dropdown. Anything else (freebsd, aix, …) is left blank so the yml
+ * form shows its placeholder rather than a rejected pre-fill.
+ */
+function mapPlatform(p: NodeJS.Platform): '' | 'macOS' | 'Windows' | 'Linux' {
+  if (p === 'darwin') return 'macOS';
+  if (p === 'win32') return 'Windows';
+  if (p === 'linux') return 'Linux';
+  return '';
+}
+
+/**
+ * Map an upstream_provider string (already normalized lowercase like
+ * `anthropic`, `openai`, `google`, `openrouter`, `groq`) to the exact labels
+ * the yml provider dropdown accepts. Unknown providers fall back to 'Other'.
+ */
+function mapProvider(
+  raw: unknown,
+): '' | 'Anthropic' | 'OpenAI' | 'Google' | 'OpenRouter' | 'Groq' | 'Other' | 'N/A' {
+  if (raw == null) return '';
+  const s = String(raw).toLowerCase().trim();
+  if (s === 'anthropic') return 'Anthropic';
+  if (s === 'openai') return 'OpenAI';
+  if (s === 'google' || s === 'gemini') return 'Google';
+  if (s === 'openrouter') return 'OpenRouter';
+  if (s === 'groq') return 'Groq';
+  if (s.length === 0) return '';
+  return 'Other';
+}
 
 function reportedFingerprintsPath(): string {
   return join(configDir(), REPORTED_FINGERPRINTS_FILENAME);
@@ -399,35 +435,88 @@ async function buildDiagnosticsZip(): Promise<string> {
   });
 }
 
-function buildIssueUrl(params: {
+/**
+ * Build a URL that pre-fills `.github/ISSUE_TEMPLATE/bug_report.yml`. This
+ * replaces the legacy `?title=&body=` freeform URL so reports land in the
+ * structured yml form (error_code / platform / version / logs / diagnostics)
+ * that maintainers triage against.
+ *
+ * Field caps (ACTUAL_MAX, LOGS_MAX, DIAGNOSTICS_MAX) guard each field on its
+ * own. If the assembled URL still exceeds GH_URL_MAX we trim `logs` first and
+ * append a pointer to the attached bundle.
+ */
+export function buildIssueUrlWithTemplate(params: {
   event: DiagnosticEventRow;
-  summaryMarkdown: string;
   bundlePath: string;
+  appVersion: string;
+  platform: NodeJS.Platform;
+  platformVersion?: string;
+  logTail: string[];
 }): string {
-  const { event, summaryMarkdown, bundlePath } = params;
-  const base = `${GITHUB_REPO_URL}/issues/new`;
-  const title = `[bug] ${event.code} (fp: ${event.fingerprint})`;
-  // Visible attach instruction. summary.md is English-only today, so keep
-  // this English too — a bilingual block would drift from it. Better an
-  // unambiguous English line than an invisible HTML comment.
-  const attachBlock = [
-    '',
-    '## Diagnostic bundle',
-    '',
-    'Please attach the diagnostic zip to this issue so we can see the full log:',
-    '',
-    `\`${bundlePath}\``,
-    '',
-    '(Drag the file from Finder / Explorer into the issue comment box below.)',
-    '',
-    `<!-- bundle attached at: ${bundlePath} -->`,
-  ].join('\n');
-  const bodyRaw = `${summaryMarkdown}\n${attachBlock}`;
-  const body =
-    bodyRaw.length > GH_BODY_MAX
-      ? `${bodyRaw.slice(0, GH_BODY_MAX)}\n\n_(truncated — see attached bundle: ${bundlePath})_`
-      : bodyRaw;
-  return `${base}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent('bug,diagnostic-auto')}`;
+  const { event, bundlePath, appVersion, platform, platformVersion, logTail } = params;
+
+  const title = `[Bug]: ${event.code} (fp: ${event.fingerprint})`;
+
+  // actual — the short human explanation. Combine message + upstream status/code
+  // so the triage reader sees the headline without opening the bundle.
+  const actualParts: string[] = [event.message];
+  if (event.scope === 'provider' && event.context) {
+    const status = event.context['upstream_status'];
+    const requestId = event.context['upstream_request_id'];
+    if (status != null) actualParts.push(`upstream_status=${String(status)}`);
+    if (requestId != null) actualParts.push(`upstream_request_id=${String(requestId)}`);
+  }
+  const actual = truncate(actualParts.join(' — '), ACTUAL_MAX);
+
+  // logs — fenced so GitHub renders them as a code block. Capped at LOGS_MAX
+  // up front; may be trimmed further below if the whole URL is too long.
+  let logs = fenceLogs(logTail, LOGS_MAX);
+
+  const diagnostics = truncate(
+    `Bundle saved locally at ${bundlePath}. Attach it to this issue after submitting.`,
+    DIAGNOSTICS_MAX,
+  );
+
+  const provider =
+    event.scope === 'provider' ? mapProvider(event.context?.['upstream_provider']) : '';
+
+  function assemble(logsField: string): string {
+    const params = new URLSearchParams();
+    params.set('template', 'bug_report.yml');
+    params.set('title', title);
+    params.set('labels', 'bug,triage,diagnostic-auto');
+    params.set('version', appVersion);
+    const mappedPlatform = mapPlatform(platform);
+    if (mappedPlatform) params.set('platform', mappedPlatform);
+    if (platformVersion) params.set('platform_version', platformVersion);
+    if (provider) params.set('provider', provider);
+    params.set('error_code', event.code);
+    params.set('actual', actual);
+    params.set('logs', logsField);
+    params.set('diagnostics', diagnostics);
+    return `${GITHUB_REPO_URL}/issues/new?${params.toString()}`;
+  }
+
+  let url = assemble(logs);
+  if (url.length > GH_URL_MAX) {
+    // Trim logs until the URL fits, then mark it so the reader knows to look
+    // at the bundle for the full trace.
+    const overflow = url.length - GH_URL_MAX;
+    const trimmedLen = Math.max(0, logs.length - overflow - 200);
+    logs = `${logs.slice(0, trimmedLen)}\n... (truncated; see attached bundle)\n\`\`\``;
+    url = assemble(logs);
+  }
+  return url;
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+function fenceLogs(lines: string[], max: number): string {
+  const joined = lines.join('\n');
+  const body = joined.length <= max ? joined : `${joined.slice(joined.length - max)}`;
+  return `\`\`\`\n${body}\n\`\`\``;
 }
 
 export function registerDiagnosticsIpc(db: Database | null): void {
@@ -580,7 +669,15 @@ export function registerDiagnosticsIpc(db: Database | null): void {
         includePaths: input.includePaths,
         includeUrls: input.includeUrls,
       });
-      const issueUrl = buildIssueUrl({ event, summaryMarkdown, bundlePath });
+      const os = await import('node:os');
+      const issueUrl = buildIssueUrlWithTemplate({
+        event,
+        bundlePath,
+        appVersion: app.getVersion(),
+        platform: process.platform,
+        platformVersion: os.release(),
+        logTail: recentLogTail,
+      });
 
       try {
         recordReported(reportedFingerprintsPath(), event.fingerprint, issueUrl);
