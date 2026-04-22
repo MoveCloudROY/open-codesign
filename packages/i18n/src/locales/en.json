@@ -49,6 +49,13 @@
       "sectionSubtitle": "{{count}} files",
       "empty": "No files yet. Send a prompt to have the agent generate a design — files will show up here."
     },
+    "workspace": {
+      "sectionTitle": "Workspace",
+      "label": "Folder",
+      "default": "Default internal storage",
+      "choose": "Choose folder",
+      "change": "Change"
+    },
     "rail": {
       "title": "Files",
       "collapse": "Collapse files",
