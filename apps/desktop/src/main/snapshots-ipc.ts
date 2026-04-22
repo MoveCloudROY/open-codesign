@@ -12,7 +12,8 @@
 import type { Design, DesignSnapshot, SnapshotCreateInput } from '@open-codesign/shared';
 import { CodesignError } from '@open-codesign/shared';
 import type BetterSqlite3 from 'better-sqlite3';
-import { ipcMain } from './electron-runtime';
+import type { BrowserWindow } from 'electron';
+import { dialog, ipcMain } from './electron-runtime';
 import { getLogger } from './logger';
 import {
   createDesign,
@@ -27,6 +28,7 @@ import {
   setDesignThumbnail,
   softDeleteDesign,
 } from './snapshots-db';
+import { bindWorkspace, openWorkspaceFolder } from './design-workspace';
 
 type Database = BetterSqlite3.Database;
 
@@ -339,6 +341,89 @@ export function registerSnapshotsIpc(db: Database): void {
   });
 }
 
+export function registerWorkspaceIpc(db: Database, getWin: () => BrowserWindow | null): void {
+  ipcMain.handle('snapshots:v1:workspace:pick', async (_e: unknown, raw: unknown): Promise<string | null> => {
+    if (typeof raw !== 'object' || raw === null) {
+      throw new CodesignError(
+        'snapshots:v1:workspace:pick expects an object payload',
+        'IPC_BAD_INPUT',
+      );
+    }
+    requireSchemaV1(raw as Record<string, unknown>, 'snapshots:v1:workspace:pick');
+    const win = getWin();
+    if (!win) {
+      throw new CodesignError('Window not available', 'IPC_DB_ERROR');
+    }
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.handle('snapshots:v1:workspace:update', async (_e: unknown, raw: unknown): Promise<Design> => {
+    if (typeof raw !== 'object' || raw === null) {
+      throw new CodesignError(
+        'snapshots:v1:workspace:update expects an object payload',
+        'IPC_BAD_INPUT',
+      );
+    }
+    const r = raw as Record<string, unknown>;
+    requireSchemaV1(r, 'snapshots:v1:workspace:update');
+
+    if (typeof r['designId'] !== 'string' || r['designId'].trim().length === 0) {
+      throw new CodesignError('designId must be a non-empty string', 'IPC_BAD_INPUT');
+    }
+    const workspacePath = r['workspacePath'];
+    if (workspacePath !== null && typeof workspacePath !== 'string') {
+      throw new CodesignError('workspacePath must be a string or null', 'IPC_BAD_INPUT');
+    }
+    if (typeof r['migrateFiles'] !== 'boolean') {
+      throw new CodesignError('migrateFiles must be a boolean', 'IPC_BAD_INPUT');
+    }
+
+    try {
+      const design = await bindWorkspace(db, r['designId'] as string, workspacePath as string | null, r['migrateFiles'] as boolean);
+      if (design === null) {
+        throw new CodesignError('Design not found', 'IPC_NOT_FOUND');
+      }
+      logger.info('design.workspace_updated', { id: design.id, workspacePath: design.workspacePath });
+      return design;
+    } catch (err) {
+      if (err instanceof CodesignError) throw err;
+      if (err instanceof Error && err.message.includes('already bound')) {
+        throw new CodesignError(err.message, 'IPC_CONFLICT');
+      }
+      throw new CodesignError('Workspace update failed', 'IPC_DB_ERROR', { cause: err });
+    }
+  });
+
+  ipcMain.handle('snapshots:v1:workspace:open', async (_e: unknown, raw: unknown): Promise<void> => {
+    if (typeof raw !== 'object' || raw === null) {
+      throw new CodesignError(
+        'snapshots:v1:workspace:open expects an object payload',
+        'IPC_BAD_INPUT',
+      );
+    }
+    const r = raw as Record<string, unknown>;
+    requireSchemaV1(r, 'snapshots:v1:workspace:open');
+
+    if (typeof r['designId'] !== 'string' || r['designId'].trim().length === 0) {
+      throw new CodesignError('designId must be a non-empty string', 'IPC_BAD_INPUT');
+    }
+
+    const design = runDb('workspace:open', () => getDesign(db, r['designId'] as string));
+    if (design === null) {
+      throw new CodesignError('Design not found', 'IPC_NOT_FOUND');
+    }
+    if (design.workspacePath === null) {
+      throw new CodesignError('No workspace bound to this design', 'IPC_BAD_INPUT');
+    }
+
+    await openWorkspaceFolder(design.workspacePath);
+  });
+}
+
 function parseIdPayload(raw: unknown, channel: string): string {
   if (typeof raw !== 'object' || raw === null) {
     throw new CodesignError(`snapshots:v1:${channel} expects { id }`, 'IPC_BAD_INPUT');
@@ -372,6 +457,9 @@ export const SNAPSHOTS_CHANNELS_V1 = [
   'snapshots:v1:get',
   'snapshots:v1:create',
   'snapshots:v1:delete',
+  'snapshots:v1:workspace:pick',
+  'snapshots:v1:workspace:update',
+  'snapshots:v1:workspace:open',
 ] as const;
 
 export function registerSnapshotsUnavailableIpc(reason: string): void {
