@@ -108,6 +108,45 @@ describe('readPersisted()', () => {
     const result = await readPersisted();
     expect(result.generationTimeoutSec).toBe(600);
   });
+
+  it('upgrading from schema 4 seeds diagnosticsLastReadTs to now, not 0', async () => {
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        schemaVersion: 4,
+        updateChannel: 'stable',
+        generationTimeoutSec: 1200,
+        checkForUpdatesOnStartup: true,
+        dismissedUpdateVersion: '',
+      }),
+    );
+    const before = Date.now();
+    const result = await readPersisted();
+    const after = Date.now();
+    expect(result.diagnosticsLastReadTs).toBeGreaterThanOrEqual(before);
+    expect(result.diagnosticsLastReadTs).toBeLessThanOrEqual(after);
+  });
+
+  it('preserves an existing diagnosticsLastReadTs across a schema bump', async () => {
+    readFileMock.mockResolvedValueOnce(
+      JSON.stringify({
+        schemaVersion: 4,
+        updateChannel: 'stable',
+        generationTimeoutSec: 1200,
+        checkForUpdatesOnStartup: true,
+        dismissedUpdateVersion: '',
+        diagnosticsLastReadTs: 12345,
+      }),
+    );
+    const result = await readPersisted();
+    expect(result.diagnosticsLastReadTs).toBe(12345);
+  });
+
+  it('fresh install (ENOENT) keeps diagnosticsLastReadTs at 0', async () => {
+    const notFound = Object.assign(new Error('no such file'), { code: 'ENOENT' });
+    readFileMock.mockRejectedValueOnce(notFound);
+    const result = await readPersisted();
+    expect(result.diagnosticsLastReadTs).toBe(0);
+  });
 });
 
 describe('preferences v4 schema fields', () => {

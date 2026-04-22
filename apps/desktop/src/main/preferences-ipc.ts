@@ -92,7 +92,16 @@ export async function readPersisted(): Promise<Preferences> {
       diagnosticsLastReadTs:
         typeof parsed.diagnosticsLastReadTs === 'number' && parsed.diagnosticsLastReadTs >= 0
           ? parsed.diagnosticsLastReadTs
-          : DEFAULTS.diagnosticsLastReadTs,
+          : persistedSchema < SCHEMA_VERSION
+            ? // One-time migration seed: users upgrading from a schema < 5 prefs
+              // file have no record of when they last read the Diagnostics panel,
+              // so counting every historical error row as unread would flash a
+              // "99+" badge on first launch. Seed to "now" so only errors that
+              // happen after the upgrade count as unread. Fresh installs miss
+              // this branch (ENOENT path above returns DEFAULTS) and stay at 0,
+              // which is fine because their diagnostics DB is empty anyway.
+              Date.now()
+            : DEFAULTS.diagnosticsLastReadTs,
     };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULTS };
