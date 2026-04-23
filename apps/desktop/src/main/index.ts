@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path_module from 'node:path';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -311,15 +311,15 @@ export function createRuntimeTextEditorFs({
     if (index !== undefined) emitFsUpdated('index.html', index);
   }
 
-  function persistMutation(filePath: string, content: string): void {
+  async function persistMutation(filePath: string, content: string): Promise<void> {
     if (designId === null || db === null) return;
     const persisted = upsertDesignFile(db, designId, filePath, content);
     const design = getDesign(db, designId);
     if (design === null || design.workspacePath === null) return;
     const destinationPath = path_module.join(design.workspacePath, persisted.path);
     try {
-      mkdirSync(path_module.dirname(destinationPath), { recursive: true });
-      writeFileSync(destinationPath, content, 'utf8');
+      await mkdir(path_module.dirname(destinationPath), { recursive: true });
+      await writeFile(destinationPath, content, 'utf8');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('runtime.fs.writeThrough.fail', {
@@ -338,14 +338,14 @@ export function createRuntimeTextEditorFs({
       if (content === undefined) return null;
       return { content, numLines: content.split('\n').length };
     },
-    create(path: string, content: string) {
+    async create(path: string, content: string) {
       fsMap.set(path, content);
       emitFsUpdated(path, content);
       emitIndexIfAssetChanged(path);
-      persistMutation(path, content);
+      await persistMutation(path, content);
       return { path };
     },
-    strReplace(path: string, oldStr: string, newStr: string) {
+    async strReplace(path: string, oldStr: string, newStr: string) {
       const current = fsMap.get(path);
       if (current === undefined) throw new Error(`File not found: ${path}`);
       const idx = current.indexOf(oldStr);
@@ -357,10 +357,10 @@ export function createRuntimeTextEditorFs({
       fsMap.set(path, next);
       emitFsUpdated(path, next);
       emitIndexIfAssetChanged(path);
-      persistMutation(path, next);
+      await persistMutation(path, next);
       return { path };
     },
-    insert(path: string, line: number, text: string) {
+    async insert(path: string, line: number, text: string) {
       const current = fsMap.get(path) ?? '';
       const lines = current.split('\n');
       const clamped = Math.max(0, Math.min(line, lines.length));
@@ -369,7 +369,7 @@ export function createRuntimeTextEditorFs({
       fsMap.set(path, next);
       emitFsUpdated(path, next);
       emitIndexIfAssetChanged(path);
-      persistMutation(path, next);
+      await persistMutation(path, next);
       return { path };
     },
     listDir(dir: string) {

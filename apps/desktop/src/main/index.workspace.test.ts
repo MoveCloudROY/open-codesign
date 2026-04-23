@@ -90,7 +90,7 @@ describe('createRuntimeTextEditorFs', () => {
     vi.clearAllMocks();
   });
 
-  it('persists fs.create to db without writing disk when workspace is absent', () => {
+  it('persists fs.create to db without writing disk when workspace is absent', async () => {
     const db = initInMemoryDb();
     const design = createDesign(db, 'Workspaceless');
     const sendEvent = vi.fn();
@@ -104,7 +104,7 @@ describe('createRuntimeTextEditorFs', () => {
       sendEvent,
     });
 
-    fs.create('nested/index.html', '<main>created</main>');
+    await fs.create('nested/index.html', '<main>created</main>');
 
     expect(viewDesignFile(db, design.id, 'nested/index.html')?.content).toBe(
       '<main>created</main>',
@@ -113,7 +113,7 @@ describe('createRuntimeTextEditorFs', () => {
     expect(listFsUpdatedEvents(sendEvent)).toHaveLength(1);
   });
 
-  it('persists fs.create to db and writes disk when workspace is bound', () => {
+  it('persists fs.create to db and writes disk when workspace is bound', async () => {
     const db = initInMemoryDb();
     const design = createDesign(db, 'Workspace');
     const workspaceDir = makeTempDir('ocd-runtime-create-');
@@ -130,7 +130,7 @@ describe('createRuntimeTextEditorFs', () => {
     });
 
     try {
-      fs.create('nested/index.html', '<main>created</main>');
+      await fs.create('nested/index.html', '<main>created</main>');
 
       const diskPath = path.join(workspaceDir, 'nested/index.html');
       expect(viewDesignFile(db, design.id, 'nested/index.html')?.content).toBe(
@@ -143,7 +143,7 @@ describe('createRuntimeTextEditorFs', () => {
     }
   });
 
-  it('updates db and disk for fs.strReplace in a bound workspace', () => {
+  it('updates db and disk for fs.strReplace in a bound workspace', async () => {
     const db = initInMemoryDb();
     const design = createDesign(db, 'Workspace');
     const workspaceDir = makeTempDir('ocd-runtime-replace-');
@@ -160,8 +160,8 @@ describe('createRuntimeTextEditorFs', () => {
     });
 
     try {
-      fs.create('index.html', '<main>before</main>');
-      fs.strReplace('index.html', 'before', 'after');
+      await fs.create('index.html', '<main>before</main>');
+      await fs.strReplace('index.html', 'before', 'after');
 
       const events = listFsUpdatedEvents(sendEvent);
       expect(viewDesignFile(db, design.id, 'index.html')?.content).toBe('<main>after</main>');
@@ -179,7 +179,7 @@ describe('createRuntimeTextEditorFs', () => {
     }
   });
 
-  it('updates db and disk for fs.insert in a bound workspace', () => {
+  it('updates db and disk for fs.insert in a bound workspace', async () => {
     const db = initInMemoryDb();
     const design = createDesign(db, 'Workspace');
     const workspaceDir = makeTempDir('ocd-runtime-insert-');
@@ -196,8 +196,8 @@ describe('createRuntimeTextEditorFs', () => {
     });
 
     try {
-      fs.create('index.html', '<main>line1</main>');
-      fs.insert('index.html', 1, '<footer>tail</footer>');
+      await fs.create('index.html', '<main>line1</main>');
+      await fs.insert('index.html', 1, '<footer>tail</footer>');
 
       const events = listFsUpdatedEvents(sendEvent);
       expect(viewDesignFile(db, design.id, 'index.html')?.content).toBe(
@@ -217,7 +217,7 @@ describe('createRuntimeTextEditorFs', () => {
     }
   });
 
-  it('skips disk writes for all mutations when workspacePath is null', () => {
+  it('skips disk writes for all mutations when workspacePath is null', async () => {
     const db = initInMemoryDb();
     const design = createDesign(db, 'Workspaceless');
     const workspaceDir = makeTempDir('ocd-runtime-null-workspace-');
@@ -233,11 +233,9 @@ describe('createRuntimeTextEditorFs', () => {
     });
 
     try {
-      expect(() => {
-        fs.create('nested/index.html', '<main>start</main>');
-        fs.strReplace('nested/index.html', 'start', 'middle');
-        fs.insert('nested/index.html', 1, '<footer>end</footer>');
-      }).not.toThrow();
+      await fs.create('nested/index.html', '<main>start</main>');
+      await fs.strReplace('nested/index.html', 'start', 'middle');
+      await fs.insert('nested/index.html', 1, '<footer>end</footer>');
 
       expect(viewDesignFile(db, design.id, 'nested/index.html')?.content).toBe(
         '<main>middle</main>\n<footer>end</footer>',
@@ -250,7 +248,7 @@ describe('createRuntimeTextEditorFs', () => {
     }
   });
 
-  it('emits fs_updated for anonymous mutations without db persistence', () => {
+  it('emits fs_updated for anonymous mutations without db persistence', async () => {
     const sendEvent = vi.fn();
     const logger = { error: vi.fn() };
     const { fs } = createRuntimeTextEditorFs({
@@ -262,9 +260,9 @@ describe('createRuntimeTextEditorFs', () => {
       sendEvent,
     });
 
-    fs.create('index.html', '<main>start</main>');
-    fs.strReplace('index.html', 'start', 'middle');
-    fs.insert('index.html', 1, '<footer>end</footer>');
+    await fs.create('index.html', '<main>start</main>');
+    await fs.strReplace('index.html', 'start', 'middle');
+    await fs.insert('index.html', 1, '<footer>end</footer>');
 
     expect(listFsUpdatedEvents(sendEvent)).toHaveLength(0);
     expect(logger.error).not.toHaveBeenCalled();

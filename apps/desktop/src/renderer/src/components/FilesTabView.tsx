@@ -64,9 +64,17 @@ function WorkspaceSection() {
         ) {
           requestWorkspaceRebind(currentDesign, path);
         } else if (!currentDesign.workspacePath) {
-          await window.codesign.snapshots.updateWorkspace(currentDesignId, path, false);
-          const updated = await window.codesign.snapshots.listDesigns();
-          useCodesignStore.setState({ designs: updated });
+          try {
+            await window.codesign.snapshots.updateWorkspace(currentDesignId, path, false);
+            const updated = await window.codesign.snapshots.listDesigns();
+            useCodesignStore.setState({ designs: updated });
+          } catch (err) {
+            useCodesignStore.getState().pushToast({
+              variant: 'error',
+              title: t('canvas.workspace.updateFailed'),
+              description: err instanceof Error ? err.message : t('errors.unknown'),
+            });
+          }
         }
       }
     } finally {
