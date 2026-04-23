@@ -2,6 +2,7 @@ import { useT } from '@open-codesign/i18n';
 import { FileCode2, Folder, FolderOpen, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { formatAbsoluteTime, formatRelativeTime, useDesignFiles } from '../hooks/useDesignFiles';
+import { workspacePathComparisonKey } from '../lib/workspace-path';
 import { useCodesignStore } from '../store';
 
 function formatBytes(n: number | undefined): string {
@@ -65,10 +66,10 @@ export function FilesPanel() {
       setWorkspaceLoading(true);
       const path = await window.codesign.snapshots.pickWorkspaceFolder();
       if (path && currentDesign && currentDesignId) {
-        const normalizePath = (p: string) => p.replaceAll('\\', '/').replace(/\/+$/, '');
         if (
           currentDesign.workspacePath &&
-          normalizePath(currentDesign.workspacePath) !== normalizePath(path)
+          workspacePathComparisonKey(currentDesign.workspacePath) !==
+            workspacePathComparisonKey(path)
         ) {
           requestWorkspaceRebind(currentDesign, path);
         } else if (!currentDesign.workspacePath) {
