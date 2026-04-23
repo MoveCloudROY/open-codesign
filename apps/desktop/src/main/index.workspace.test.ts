@@ -167,6 +167,8 @@ describe('createRuntimeTextEditorFs', () => {
       );
 
       expect(viewDesignFile(db, design.id, 'nested/index.html')).toBeNull();
+      expect(fs.view('nested/index.html')).toBeNull();
+      expect(listFsUpdatedEvents(sendEvent)).toHaveLength(0);
       expect(logger.error).toHaveBeenCalled();
     } finally {
       cleanupDir(workspaceDir);
@@ -235,6 +237,42 @@ describe('createRuntimeTextEditorFs', () => {
       );
 
       expect(viewDesignFile(db, design.id, 'index.html')?.content).toBe('<main>before</main>');
+      expect(fs.view('index.html')?.content).toBe('<main>before</main>');
+      expect(listFsUpdatedEvents(sendEvent)).toHaveLength(1);
+      expect(logger.error).toHaveBeenCalled();
+    } finally {
+      cleanupDir(workspaceDir);
+    }
+  });
+
+  it('does not advance db content when bound workspace insert write-through fails', async () => {
+    const db = initInMemoryDb();
+    const design = createDesign(db, 'Workspace');
+    const workspaceDir = makeTempDir('ocd-runtime-insert-fail-');
+    const workspaceFile = path.join(workspaceDir, 'occupied');
+    writeFileSync(workspaceFile, 'occupied', 'utf8');
+    const sendEvent = vi.fn();
+    const logger = { error: vi.fn() };
+    const { fs } = createRuntimeTextEditorFs({
+      db,
+      designId: design.id,
+      generationId: 'gen-insert-workspace-fail',
+      logger,
+      previousHtml: null,
+      sendEvent,
+    });
+
+    try {
+      await fs.create('index.html', '<main>before</main>');
+      updateDesignWorkspace(db, design.id, normalizeWorkspacePath(workspaceFile));
+
+      await expect(fs.insert('index.html', 1, '<footer>after</footer>')).rejects.toThrow(
+        'Workspace write-through failed for index.html',
+      );
+
+      expect(viewDesignFile(db, design.id, 'index.html')?.content).toBe('<main>before</main>');
+      expect(fs.view('index.html')?.content).toBe('<main>before</main>');
+      expect(listFsUpdatedEvents(sendEvent)).toHaveLength(1);
       expect(logger.error).toHaveBeenCalled();
     } finally {
       cleanupDir(workspaceDir);

@@ -343,10 +343,10 @@ export function createRuntimeTextEditorFs({
       return { content, numLines: content.split('\n').length };
     },
     async create(path: string, content: string) {
+      await persistMutation(path, content);
       fsMap.set(path, content);
       emitFsUpdated(path, content);
       emitIndexIfAssetChanged(path);
-      await persistMutation(path, content);
       return { path };
     },
     async strReplace(path: string, oldStr: string, newStr: string) {
@@ -358,10 +358,10 @@ export function createRuntimeTextEditorFs({
         throw new Error(`old_str is ambiguous in ${path}; provide more context`);
       }
       const next = current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
+      await persistMutation(path, next);
       fsMap.set(path, next);
       emitFsUpdated(path, next);
       emitIndexIfAssetChanged(path);
-      await persistMutation(path, next);
       return { path };
     },
     async insert(path: string, line: number, text: string) {
@@ -370,10 +370,10 @@ export function createRuntimeTextEditorFs({
       const clamped = Math.max(0, Math.min(line, lines.length));
       lines.splice(clamped, 0, text);
       const next = lines.join('\n');
+      await persistMutation(path, next);
       fsMap.set(path, next);
       emitFsUpdated(path, next);
       emitIndexIfAssetChanged(path);
-      await persistMutation(path, next);
       return { path };
     },
     listDir(dir: string) {
